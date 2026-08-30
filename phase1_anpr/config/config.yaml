@@ -90,6 +90,13 @@ output:
   # Preserve original (unmodified) plate crops.
   save_plate_crops: true
 
+persistence:
+  # Default is a local sqlite DB (no service needed). For the SIH demo this can
+  # be swapped for a Postgres repository behind the same interface.
+  db_path: "outputs/observations/observations.db"
+  # Local evidence store base dir; swappable for MinIO/S3 later.
+  evidence_dir: "outputs/plates/evidence"
+
 models:
   model_version: "phase1-anpr-0.1.0"
   detector_name: "yolo-plate"
