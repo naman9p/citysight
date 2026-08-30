@@ -18,6 +18,7 @@ from urllib.parse import urlsplit, parse_qs, unquote
 
 from phase1_anpr.normalization.plate_normalizer import PlateNormalizer
 from phase1_anpr.api.dashboard import DASHBOARD_HTML
+from phase1_anpr.persistence.watchlist_repository import WatchlistError
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 500
@@ -61,9 +62,15 @@ def _parse_limit(qs: dict) -> int:
 class _Router:
     """Resolves a path/query into a JSON-serializable result or raises ApiError."""
 
-    def __init__(self, repository, normalizer=None):
+    def __init__(self, repository, normalizer=None, watchlist_repo=None):
         self.repo = repository
         self.normalizer = normalizer or PlateNormalizer()
+        self.watchlist = watchlist_repo
+
+    def _require_watchlist(self):
+        if self.watchlist is None:
+            raise ApiError(404, "watchlist not enabled")
+        return self.watchlist
 
     def dispatch(self, path: str, qs: dict):
         if path == "/health":
@@ -71,6 +78,12 @@ class _Router:
 
         if path == "/observations":
             return [_to_response(r) for r in self.repo.list_recent(_parse_limit(qs))]
+
+        if path == "/watchlist":
+            return self._require_watchlist().list()
+
+        if path == "/alerts":
+            return self._require_watchlist().list_alerts(_parse_limit(qs))
 
         m = re.fullmatch(r"/observations/([^/]+)", path)
         if m:
@@ -96,9 +109,31 @@ class _Router:
 
         raise ApiError(404, "not found")
 
+    def dispatch_post(self, path: str, body: dict):
+        if path == "/watchlist":
+            wl = self._require_watchlist()
+            if not isinstance(body, dict):
+                raise ApiError(400, "JSON object body required")
+            try:
+                return (201, wl.add(body.get("plate"), body.get("label")))
+            except WatchlistError as e:
+                raise ApiError(400, str(e))
+        raise ApiError(404, "not found")
 
-def make_handler(repository, normalizer=None):
-    router = _Router(repository, normalizer)
+    def dispatch_delete(self, path: str):
+        m = re.fullmatch(r"/watchlist/([^/]+)", path)
+        if m:
+            wl = self._require_watchlist()
+            wid = unquote(m.group(1))
+            # Disable (soft-delete) so alert history stays meaningful.
+            if not wl.disable(wid) and wl.get(wid) is None:
+                raise ApiError(404, f"watchlist entry not found: {wid}")
+            return {"watchlist_id": wid, "enabled": 0}
+        raise ApiError(404, "not found")
+
+
+def make_handler(repository, normalizer=None, watchlist_repo=None):
+    router = _Router(repository, normalizer, watchlist_repo)
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status, payload):
@@ -117,6 +152,16 @@ def make_handler(repository, normalizer=None):
             self.end_headers()
             self.wfile.write(body)
 
+        def _read_json(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            if length <= 0:
+                return {}
+            raw = self.rfile.read(length)
+            try:
+                return json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                raise ApiError(400, "invalid JSON body")
+
         def do_GET(self):
             parts = urlsplit(self.path)
             if parts.path == "/dashboard":
@@ -129,12 +174,32 @@ def make_handler(repository, normalizer=None):
             else:
                 self._send(200, result)
 
+        def do_POST(self):
+            parts = urlsplit(self.path)
+            try:
+                status, result = router.dispatch_post(parts.path, self._read_json())
+            except ApiError as e:
+                self._send(e.status, {"error": e.message})
+            else:
+                self._send(status, result)
+
+        def do_DELETE(self):
+            parts = urlsplit(self.path)
+            try:
+                result = router.dispatch_delete(parts.path)
+            except ApiError as e:
+                self._send(e.status, {"error": e.message})
+            else:
+                self._send(200, result)
+
         def log_message(self, *args):  # silence stderr during tests
             pass
 
     return Handler
 
 
-def create_server(repository, host="127.0.0.1", port=0, normalizer=None):
+def create_server(repository, host="127.0.0.1", port=0, normalizer=None,
+                  watchlist_repo=None):
     """Build a ThreadingHTTPServer. port=0 binds an ephemeral port."""
-    return ThreadingHTTPServer((host, port), make_handler(repository, normalizer))
+    return ThreadingHTTPServer(
+        (host, port), make_handler(repository, normalizer, watchlist_repo))

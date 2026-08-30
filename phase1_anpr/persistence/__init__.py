@@ -9,6 +9,10 @@ from phase1_anpr.persistence.repository import (
     ObservationRepository,
     SQLiteObservationRepository,
 )
+from phase1_anpr.persistence.watchlist_repository import (
+    SQLiteWatchlistRepository,
+    WatchlistError,
+)
 
 __all__ = [
     "EvidenceStore",
@@ -16,4 +20,6 @@ __all__ = [
     "EvidenceError",
     "ObservationRepository",
     "SQLiteObservationRepository",
+    "SQLiteWatchlistRepository",
+    "WatchlistError",
 ]

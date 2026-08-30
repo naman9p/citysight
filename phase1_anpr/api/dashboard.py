@@ -59,6 +59,21 @@ DASHBOARD_HTML = """<!doctype html>
   <section>
     <h2>Camera map</h2>
     <div id="map">No camera locations configured</div>
+    <h2 style="margin-top:16px">Watchlist</h2>
+    <form id="wl-form">
+      <input id="wl-plate" placeholder="plate e.g. MH12AB1234" autocomplete="off">
+      <button type="submit">Add</button>
+    </form>
+    <div id="wl-error" class="muted"></div>
+    <table>
+      <thead><tr><th>Plate</th><th>Label</th><th></th></tr></thead>
+      <tbody id="wl-rows"><tr><td colspan="3" class="muted">—</td></tr></tbody>
+    </table>
+    <h2 style="margin-top:16px">Recent alerts</h2>
+    <table>
+      <thead><tr><th>Time</th><th>Plate</th><th>Camera</th><th>Conf.</th></tr></thead>
+      <tbody id="alert-rows"><tr><td colspan="4" class="muted">—</td></tr></tbody>
+    </table>
   </section>
 </main>
 <script>
@@ -140,6 +155,78 @@ DASHBOARD_HTML = """<!doctype html>
 
   load();
   setInterval(load, 5000); // periodic polling only; no streaming transport
+
+  // --- watchlist + alerts ---------------------------------------------------
+  var wlRows = document.getElementById("wl-rows");
+  var alertRows = document.getElementById("alert-rows");
+  var wlError = document.getElementById("wl-error");
+
+  function fillEmpty(tbody, cols, text) {
+    var tr = document.createElement("tr");
+    var c = td(text); c.colSpan = cols; c.className = "muted";
+    tr.appendChild(c); tbody.appendChild(tr);
+  }
+
+  function loadWatchlist() {
+    fetch("/watchlist").then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (list) {
+        wlRows.replaceChildren();
+        if (!Array.isArray(list) || list.length === 0) {
+          fillEmpty(wlRows, 3, "Empty"); return;
+        }
+        list.forEach(function (w) {
+          var tr = document.createElement("tr");
+          tr.appendChild(td(w.normalized_plate || "—"));
+          tr.appendChild(td(w.label || "—"));
+          var actionCell = document.createElement("td");
+          var btn = document.createElement("button");
+          btn.type = "button"; btn.textContent = "Disable";
+          btn.addEventListener("click", function () {
+            fetch("/watchlist/" + encodeURIComponent(w.watchlist_id),
+                  { method: "DELETE" }).then(loadWatchlist);
+          });
+          actionCell.appendChild(btn);
+          tr.appendChild(actionCell);
+          wlRows.appendChild(tr);
+        });
+      }).catch(function () {});
+  }
+
+  function loadAlerts() {
+    fetch("/alerts").then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (list) {
+        alertRows.replaceChildren();
+        if (!Array.isArray(list) || list.length === 0) {
+          fillEmpty(alertRows, 4, "No alerts"); return;
+        }
+        list.forEach(function (a) {
+          var tr = document.createElement("tr");
+          tr.appendChild(td(a.timestamp || "—"));
+          tr.appendChild(td(a.normalized_plate || "—"));
+          tr.appendChild(td(a.camera_id || "—"));
+          tr.appendChild(td((typeof a.confidence === "number") ? a.confidence.toFixed(2) : "—"));
+          alertRows.appendChild(tr);
+        });
+      }).catch(function () {});
+  }
+
+  document.getElementById("wl-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    wlError.textContent = "";
+    var plate = document.getElementById("wl-plate").value.trim();
+    fetch("/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plate: plate }),
+    }).then(function (r) {
+      if (r.ok) { document.getElementById("wl-plate").value = ""; loadWatchlist(); }
+      else { return r.json().then(function (j) { wlError.textContent = j.error || "invalid plate"; }); }
+    }).catch(function () { wlError.textContent = "request failed"; });
+  });
+
+  function loadSecondary() { loadWatchlist(); loadAlerts(); }
+  loadSecondary();
+  setInterval(loadSecondary, 5000);
 })();
 </script>
 </body>
