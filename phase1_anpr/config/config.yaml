@@ -6,8 +6,9 @@ video:
   # Path to a single input video, or a directory of videos.
   input_path: "inputs/videos/sample.mp4"
   camera_id: "cam_01"
-  # Process every Nth frame (1 = every frame).
-  frame_stride: 1
+  # Target frames processed per second. If this is >= the source FPS,
+  # every frame is processed.
+  process_fps: 5
   # Optional resize for processing; null keeps original size.
   resize_width: null
   resize_height: null
