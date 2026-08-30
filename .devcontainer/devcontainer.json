@@ -1,0 +1,19 @@
+{
+  "name": "CitySight Phase 1 (Python 3.11)",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    }
+  },
+  // System libraries OpenCV/Ultralytics/PaddleOCR need at import time.
+  // Project Python deps are NOT installed automatically yet.
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python"
+      ]
+    }
+  }
+}

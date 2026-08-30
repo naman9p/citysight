@@ -1,0 +1,86 @@
+# CitySight — Phase 1 ANPR Engine
+# Central configuration for thresholds and paths.
+# Values are placeholders for Step 1; later steps will use them.
+
+video:
+  # Path to a single input video, or a directory of videos.
+  input_path: "inputs/videos/sample.mp4"
+  camera_id: "cam_01"
+  # Process every Nth frame (1 = every frame).
+  frame_stride: 1
+  # Optional resize for processing; null keeps original size.
+  resize_width: null
+  resize_height: null
+
+detection:
+  # YOLO weights used for license plate detection (loaded in a later step).
+  weights_path: "weights/plate_detector.pt"
+  # cpu or cuda
+  device: "cpu"
+  confidence_threshold: 0.35
+  iou_threshold: 0.45
+  # Class id for "license plate" in the detector.
+  plate_class_id: 0
+  image_size: 640
+
+tracking:
+  # ByteTrack parameters.
+  tracker: "bytetrack"
+  track_high_threshold: 0.5
+  track_low_threshold: 0.1
+  new_track_threshold: 0.6
+  track_buffer: 30
+  match_threshold: 0.8
+
+quality:
+  # Best-frame selection thresholds.
+  min_plate_width: 60
+  min_plate_height: 20
+  # Laplacian variance floor for sharpness (blur rejection).
+  min_sharpness: 100.0
+  # Weights combined into a single quality_score.
+  sharpness_weight: 0.5
+  area_weight: 0.3
+  detector_confidence_weight: 0.2
+
+preprocessing:
+  # Plate crop preparation before OCR.
+  grayscale: true
+  # Upscale small crops to this height (px) for OCR.
+  target_height: 48
+  denoise: false
+  clahe: true
+
+ocr:
+  engine: "paddleocr"
+  device: "cpu"
+  language: "en"
+  min_char_confidence: 0.4
+  # Expected plate length bounds (used for sanity checks).
+  min_plate_length: 4
+  max_plate_length: 12
+
+confidence:
+  # Multi-frame fusion and final confidence gating.
+  min_observations: 2
+  # Final confidence needed to mark an observation "confirmed".
+  accept_threshold: 0.6
+  review_threshold: 0.4
+  # Blend of detector and OCR confidence into final score.
+  detector_weight: 0.4
+  ocr_weight: 0.6
+
+output:
+  plates_dir: "outputs/plates"
+  annotated_dir: "outputs/annotated"
+  observations_dir: "outputs/observations"
+  observations_file: "outputs/observations/observations.jsonl"
+  # Save annotated frames/video for debugging.
+  save_annotated: true
+  # Preserve original (unmodified) plate crops.
+  save_plate_crops: true
+
+models:
+  model_version: "phase1-anpr-0.1.0"
+  detector_name: "yolo-plate"
+  ocr_name: "paddleocr"

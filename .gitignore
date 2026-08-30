@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Model weights (large, download separately)
+weights/*
+!weights/.gitkeep
+
+# Inputs (videos are large / not tracked)
+inputs/videos/*
+!inputs/videos/.gitkeep
+
+# Outputs (generated at runtime)
+outputs/plates/*
+!outputs/plates/.gitkeep
+outputs/annotated/*
+!outputs/annotated/.gitkeep
+outputs/observations/*
+!outputs/observations/.gitkeep
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
