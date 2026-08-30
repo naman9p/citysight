@@ -1,0 +1,61 @@
+# CitySight Phase 2 — demo city camera topology (Step 17).
+#
+# Deterministic example network for the SIH demo. Coordinates are illustrative
+# demo values (loosely around a city center) and DO NOT represent actual
+# government CCTV locations.
+
+cameras:
+  - camera_id: CAM_01
+    name: Demo Junction 1
+    latitude: 28.6129
+    longitude: 77.2295
+    road_name: Demo Ring Road
+    heading_deg: 90.0
+    zone: demo-central
+    enabled: true
+  - camera_id: CAM_02
+    name: Demo Junction 2
+    latitude: 28.6155
+    longitude: 77.2410
+    road_name: Demo Ring Road
+    heading_deg: 90.0
+    zone: demo-central
+    enabled: true
+  - camera_id: CAM_03
+    name: Demo Junction 3
+    latitude: 28.6190
+    longitude: 77.2520
+    road_name: Demo Link Road
+    heading_deg: 45.0
+    zone: demo-north
+    enabled: true
+  - camera_id: CAM_04
+    name: Demo Junction 4
+    latitude: 28.6205
+    longitude: 77.2465
+    road_name: Demo Bypass
+    heading_deg: 180.0
+    zone: demo-north
+    enabled: true
+
+links:
+  - from_camera_id: CAM_01
+    to_camera_id: CAM_02
+    distance_m: 1800
+    road_name: Demo Ring Road
+    travel_direction: eastbound
+  - from_camera_id: CAM_02
+    to_camera_id: CAM_03
+    distance_m: 1200
+    road_name: Demo Link Road
+    travel_direction: northeastbound
+  - from_camera_id: CAM_02
+    to_camera_id: CAM_04
+    distance_m: 1500
+    road_name: Demo Bypass
+    travel_direction: northbound
+  - from_camera_id: CAM_03
+    to_camera_id: CAM_04
+    distance_m: 700
+    road_name: Demo Bypass
+    travel_direction: westbound
