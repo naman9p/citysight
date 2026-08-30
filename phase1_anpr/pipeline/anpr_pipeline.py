@@ -16,11 +16,12 @@ Idempotency / one-observation-per-track:
   duplicates when a whole video is reprocessed.
 """
 
+import math
 import os
 import tempfile
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 
@@ -37,6 +38,56 @@ def _default_timestamp(track) -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def parse_video_start_time(value):
+    """Parse an optional configured video start time to a UTC ``datetime``.
+
+    ``None``/empty means "not configured" (returns None). A supplied value must
+    be a valid ISO-8601 datetime that includes timezone information; naive or
+    malformed values raise ``ValueError`` (fail fast, before any inference).
+    Accepts a trailing ``Z`` (UTC) as well as explicit offsets like ``+05:30``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return None
+        # datetime.fromisoformat handles "Z" on 3.11+, but normalize explicitly
+        # so behavior is identical regardless of patch version.
+        if text[-1] in ("Z", "z"):
+            text = text[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError as exc:
+            raise ValueError(
+                f"video.start_time is not a valid ISO-8601 datetime: {value!r}"
+            ) from exc
+    if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+        raise ValueError(
+            f"video.start_time must include timezone information (got naive "
+            f"value {value!r})"
+        )
+    return dt.astimezone(timezone.utc)
+
+
+def _validate_video_timestamp(video_timestamp):
+    """Validate an explicitly supplied per-frame video timestamp (seconds)."""
+    if isinstance(video_timestamp, bool) or not isinstance(
+            video_timestamp, (int, float)):
+        raise ValueError(
+            f"video_timestamp must be numeric, got {video_timestamp!r}")
+    value = float(video_timestamp)
+    if not math.isfinite(value):
+        raise ValueError(
+            f"video_timestamp must be finite, got {video_timestamp!r}")
+    if value < 0:
+        raise ValueError(
+            f"video_timestamp must be >= 0, got {video_timestamp!r}")
+    return value
+
+
 class ANPRPipeline:
     """Orchestrates the completed ANPR components end to end."""
 
@@ -44,7 +95,7 @@ class ANPRPipeline:
                  normalizer, confidence_scorer, observation_builder,
                  observation_repo, evidence_store=None, watchlist_repo=None,
                  camera_id="cam_01", model_version="phase1-anpr-0.1.0",
-                 timestamp_fn=None):
+                 timestamp_fn=None, video_start_time=None):
         self.detector = detector
         self.tracker = tracker
         self.quality_scorer = quality_scorer
@@ -57,14 +108,29 @@ class ANPRPipeline:
         self.watchlist_repo = watchlist_repo
         self.camera_id = camera_id
         self.model_version = model_version
-        self.timestamp_fn = timestamp_fn or _default_timestamp
+        # Kept as None (not the default fn) so we can honor the documented
+        # priority: an explicit timestamp_fn always wins over video start time.
+        self.timestamp_fn = timestamp_fn
+        # Parsed/validated up front so a bad configured value fails immediately.
+        self.video_start_time = parse_video_start_time(video_start_time)
+        # Lightweight frame_number -> video_timestamp (seconds) map for processed
+        # frames; avoids widening tracker/quality candidate tuples.
+        self._frame_timestamps = {}
         # Guard: a track is turned into a canonical observation at most once.
         self._processed_track_ids = set()
 
     # --- per-frame ------------------------------------------------------------
 
-    def process_frame(self, frame, frame_number):
-        """Detect plates on one frame and feed them to the tracker."""
+    def process_frame(self, frame, frame_number, video_timestamp=None):
+        """Detect plates on one frame and feed them to the tracker.
+
+        ``video_timestamp`` (seconds since the start of the source video) is
+        optional and backward-compatible: old two-arg callers still work. When
+        supplied it is validated and remembered for event-time resolution.
+        """
+        if video_timestamp is not None:
+            self._frame_timestamps[frame_number] = _validate_video_timestamp(
+                video_timestamp)
         detections = self.detector.detect(frame, frame_number)
         crops = [self.detector.crop(frame, d) for d in detections]
         self.tracker.update(detections, frame_number, crops)
@@ -96,6 +162,35 @@ class ANPRPipeline:
             # Missing/invalid evidence must not break observation persistence.
             return None
 
+    def _resolve_observation_timestamp(self, track, scored) -> str:
+        """Resolve the canonical observation timestamp (ISO-8601 string).
+
+        Priority:
+          1. an explicit caller-provided ``timestamp_fn`` (authoritative);
+          2. recorded-video event time when ``video_start_time`` is configured
+             and the sighting frame's video offset is known;
+          3. the processing-time UTC fallback.
+
+        The sighting frame is the best selected quality crop
+        (``scored[0].frame_number``); if there is no valid scored crop, the
+        track's most recent observed frame is used, and only if that offset was
+        never captured do we fall back to processing time.
+        """
+        if self.timestamp_fn is not None:
+            return self.timestamp_fn(track)
+
+        if self.video_start_time is not None:
+            offset = None
+            if scored:
+                offset = self._frame_timestamps.get(scored[0].frame_number)
+            if offset is None:
+                offset = self._frame_timestamps.get(track.last_seen)
+            if offset is not None:
+                event_time = self.video_start_time + timedelta(seconds=offset)
+                return event_time.isoformat()
+
+        return _default_timestamp(track)
+
     def _finalize_track(self, track) -> Optional[PipelineResult]:
         if track.track_id in self._processed_track_ids:
             return None
@@ -117,7 +212,7 @@ class ANPRPipeline:
         observation = self.observation_builder.build(
             track_result, normalization, confidence,
             camera_id=self.camera_id,
-            timestamp=self.timestamp_fn(track),
+            timestamp=self._resolve_observation_timestamp(track, scored),
             model_version=self.model_version,
             plate_image_path=plate_image_path,
             event_id=event_id,
@@ -150,7 +245,9 @@ class ANPRPipeline:
         """Process an entire video reader, then finalize all tracks."""
         with video_reader as reader:
             for pf in reader.frames():
-                self.process_frame(pf.frame, pf.frame_number)
+                self.process_frame(
+                    pf.frame, pf.frame_number,
+                    video_timestamp=getattr(pf, "video_timestamp", None))
         return self.finalize()
 
 
@@ -172,6 +269,10 @@ def build_pipeline_from_config(config, observation_repo, evidence_store=None,
     from phase1_anpr.observation.observation_builder import ObservationBuilder
 
     detector = PlateDetector.from_config(config)  # raises if weights missing
+    # Validate the optional recorded-video start time up front, before any
+    # (expensive) YOLO/OCR inference can begin.
+    video_cfg = config.get("video", {})
+    video_start_time = parse_video_start_time(video_cfg.get("start_time"))
     tracking = config.get("tracking", {})
     tracker = PlateTracker(
         track_buffer=tracking.get("track_buffer", 30),
@@ -197,6 +298,7 @@ def build_pipeline_from_config(config, observation_repo, evidence_store=None,
         camera_id=config.get("video", {}).get("camera_id", "cam_01"),
         model_version=config.get("models", {}).get("model_version",
                                                     "phase1-anpr-0.1.0"),
+        video_start_time=video_start_time,
     )
 
 

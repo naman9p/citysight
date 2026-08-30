@@ -12,6 +12,12 @@ video:
   # Optional resize for processing; null keeps original size.
   resize_width: null
   resize_height: null
+  # Optional recorded-video start time. When set, canonical observation
+  # timestamps become video_start_time + the best crop's position in the video
+  # (normalized to UTC). null keeps the Phase 1 processing-time behavior.
+  # Must be a timezone-aware ISO-8601 value, e.g. "2026-08-31T10:00:00+05:30"
+  # or "2026-08-31T04:30:00Z". Naive values are rejected.
+  start_time: null
 
 detection:
   # YOLO weights used for license plate detection (loaded in a later step).
