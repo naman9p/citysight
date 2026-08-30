@@ -65,6 +65,18 @@ class ObservationRepository(ABC):
     def get(self, event_id: str) -> Optional[dict]:
         """Return the stored row as a dict, or None if not found."""
 
+    @abstractmethod
+    def list_recent(self, limit: int = 50) -> list:
+        """Return the most recent observations, newest first."""
+
+    @abstractmethod
+    def list_by_plate(self, plate_normalized: str, limit: int = 50) -> list:
+        """Return observations for an exact normalized plate, newest first."""
+
+    @abstractmethod
+    def list_by_camera(self, camera_id: str, limit: int = 50) -> list:
+        """Return observations for a camera, newest first."""
+
 
 class SQLiteObservationRepository(ObservationRepository):
     """sqlite3-backed repository. `db_path=":memory:"` for tests/fakes."""
@@ -114,6 +126,31 @@ class SQLiteObservationRepository(ObservationRepository):
             "SELECT * FROM plate_observations WHERE event_id = ?", (event_id,)
         ).fetchone()
         return dict(row) if row is not None else None
+
+    # Newest-first ordering uses timestamp then event_id as a stable tiebreak.
+    def list_recent(self, limit: int = 50) -> list:
+        rows = self._conn.execute(
+            "SELECT * FROM plate_observations "
+            "ORDER BY timestamp DESC, event_id DESC LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_by_plate(self, plate_normalized: str, limit: int = 50) -> list:
+        rows = self._conn.execute(
+            "SELECT * FROM plate_observations WHERE plate_normalized = ? "
+            "ORDER BY timestamp DESC, event_id DESC LIMIT ?",
+            (plate_normalized, int(limit)),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_by_camera(self, camera_id: str, limit: int = 50) -> list:
+        rows = self._conn.execute(
+            "SELECT * FROM plate_observations WHERE camera_id = ? "
+            "ORDER BY timestamp DESC, event_id DESC LIMIT ?",
+            (camera_id, int(limit)),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def count(self) -> int:
         return self._conn.execute(
