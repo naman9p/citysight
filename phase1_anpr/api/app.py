@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs, unquote
 
 from phase1_anpr.normalization.plate_normalizer import PlateNormalizer
+from phase1_anpr.api.dashboard import DASHBOARD_HTML
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 500
@@ -108,8 +109,19 @@ def make_handler(repository, normalizer=None):
             self.end_headers()
             self.wfile.write(body)
 
+        def _send_html(self, html):
+            body = html.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):
             parts = urlsplit(self.path)
+            if parts.path == "/dashboard":
+                self._send_html(DASHBOARD_HTML)
+                return
             try:
                 result = router.dispatch(parts.path, parse_qs(parts.query))
             except ApiError as e:
