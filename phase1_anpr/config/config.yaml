@@ -39,10 +39,15 @@ quality:
   min_plate_height: 20
   # Laplacian variance floor for sharpness (blur rejection).
   min_sharpness: 100.0
-  # Weights combined into a single quality_score.
-  sharpness_weight: 0.5
-  area_weight: 0.3
-  detector_confidence_weight: 0.2
+  # Reference plate area (px) that scores ~1.0 on the size factor.
+  target_area: 8000
+  # Number of top crops kept per track.
+  top_k: 3
+  # Weights for the individual factors (need not sum to 1; normalized).
+  sharpness_weight: 0.4
+  size_weight: 0.3
+  brightness_weight: 0.15
+  contrast_weight: 0.15
 
 preprocessing:
   # Plate crop preparation before OCR.
@@ -64,12 +69,16 @@ ocr:
 confidence:
   # Multi-frame fusion and final confidence gating.
   min_observations: 2
-  # Final confidence needed to mark an observation "confirmed".
+  # Composite score >= accept_threshold (and valid format) -> accepted.
   accept_threshold: 0.6
+  # Composite score >= review_threshold -> review; below -> abstained.
   review_threshold: 0.4
-  # Blend of detector and OCR confidence into final score.
-  detector_weight: 0.4
-  ocr_weight: 0.6
+  # Weights for the composite confidence (need not sum to 1; normalized).
+  ocr_weight: 0.35
+  quality_weight: 0.15
+  detector_weight: 0.15
+  support_weight: 0.15
+  validity_weight: 0.2
 
 output:
   plates_dir: "outputs/plates"
@@ -85,3 +94,50 @@ models:
   model_version: "phase1-anpr-0.1.0"
   detector_name: "yolo-plate"
   ocr_name: "paddleocr"
+
+normalization:
+  # Characters allowed in a plate after cleanup (everything else is dropped).
+  allowed_chars: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+  # Named regex patterns tried in order; first match wins.
+  patterns:
+    standard: "^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}$"
+    bh_series: "^[0-9]{2}BH[0-9]{4}[A-Z]{1,2}$"
+  # Valid state / UT RTO codes for confident state extraction on standard plates.
+  valid_state_codes:
+    - AN
+    - AP
+    - AR
+    - AS
+    - BR
+    - CG
+    - CH
+    - DD
+    - DL
+    - DN
+    - GA
+    - GJ
+    - HP
+    - HR
+    - JH
+    - JK
+    - KA
+    - KL
+    - LA
+    - LD
+    - MH
+    - ML
+    - MN
+    - MP
+    - MZ
+    - NL
+    - OD
+    - PB
+    - PY
+    - RJ
+    - SK
+    - TN
+    - TR
+    - TS
+    - UK
+    - UP
+    - WB
