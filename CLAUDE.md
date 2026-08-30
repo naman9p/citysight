@@ -2,50 +2,61 @@
 
 ## Current Scope
 
-We are currently building only Phase 1: ANPR Engine.
+Phase 1 (ANPR Engine) is complete: Steps 1–16, video → detection → tracking →
+quality → rectification → OCR → fusion → normalization → confidence →
+canonical observation → SQLite persistence → HTTP API → dashboard → watchlist
+alerts.
 
 Do not implement Phase 2 or later features unless explicitly asked.
 
-## Phase 1 Pipeline
+## Phase 1 Pipeline (as built)
 
 Video
-→ License Plate Detection
-→ Tracking
-→ Best Frame Selection
-→ OCR
+→ YOLO License Plate Detection
+→ ByteTrack Tracking
+→ Quality Scoring (best-frame selection)
+→ Perspective Rectification
+→ PaddleOCR
 → Multi-frame Fusion
-→ Confidence
-→ JSONL Observation
+→ Indian Plate Normalization
+→ Confidence Decision (accepted / review / abstained)
+→ Canonical Observation Event
+→ SQLite Persistence (+ filesystem evidence store)
+→ Stdlib HTTP API + Dashboard
+→ Watchlist Deduplicated Alerts
 
 ## Tech Stack
 
 * Python 3.11+
 * OpenCV
-* Ultralytics YOLO
-* ByteTrack
+* Ultralytics YOLO + BYTETracker
 * PaddleOCR
 * NumPy
 * Pydantic
 * PyYAML
+* SQLite (stdlib), stdlib http.server
 * pytest
 
 ## Important Rules
 
 * Keep code simple and readable.
 * Prefer modular code over unnecessary abstraction.
-* Do not build frontend.
-* Do not build FastAPI.
-* Do not use PostgreSQL.
 * Do not use Redis.
 * Do not use Kafka.
 * Do not use Kubernetes.
 * Do not use cloud services.
+* Persistence is SQLite + a local filesystem evidence store. Their repository /
+  evidence-store interfaces are intentionally swappable (Postgres/MinIO/S3
+  later) — keep callers depending on the interfaces, not concrete backends.
+* The API is the stdlib `http.server` (no FastAPI/framework). The dashboard is
+  plain HTML/CSS/vanilla JS served by it. These were approved for the SIH demo.
 * Do not modify unrelated files.
 * Do not scan the entire repository unless required.
 * Use config.yaml for important thresholds and paths.
 * Support CPU and CUDA where possible.
 * Do not fake model results.
 * Do not claim accuracy without evaluation.
+* Do not download model weights automatically; fail clearly if weights missing.
 * Preserve original plate crops.
 * Run relevant tests after implementation.
 * Fix errors caused by your changes.
@@ -53,9 +64,12 @@ Video
 
 ## Output Contract
 
-Final ANPR observations will later be consumed by Phase 2.
+Canonical ANPR observations follow
+`contracts/events/plate-observation.schema.json` and are validated against it.
+They are persisted to SQLite (and served via the API) and will later be
+consumed by Phase 2.
 
-Each observation should contain approximately:
+Each observation contains:
 
 * event_id
 * camera_id
@@ -72,7 +86,8 @@ Each observation should contain approximately:
 * plate_image_path
 * model_version
 
-Observations should be written as JSON Lines.
+Observations are persisted to SQLite via the repository layer and exposed
+through the HTTP API.
 
 ## Development Policy
 
