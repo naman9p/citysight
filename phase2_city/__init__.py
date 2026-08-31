@@ -13,6 +13,13 @@ from phase2_city.repository import (
     CameraInUseError,
 )
 from phase2_city.graph import CityCameraGraph
+from phase2_city.scenario import (
+    Scenario,
+    ScenarioSource,
+    ScenarioResult,
+    ScenarioError,
+    load_scenario,
+)
 
 __all__ = [
     "Camera",
@@ -24,4 +31,9 @@ __all__ = [
     "InvalidCameraLinkError",
     "CameraInUseError",
     "CityCameraGraph",
+    "Scenario",
+    "ScenarioSource",
+    "ScenarioResult",
+    "ScenarioError",
+    "load_scenario",
 ]

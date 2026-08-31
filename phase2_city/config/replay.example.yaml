@@ -1,0 +1,30 @@
+# CitySight Phase 2 — example multi-camera replay scenario (Step 19).
+#
+# An explicit, curated multi-camera recorded-video replay. Every field is
+# REQUIRED and is validated (fail-fast preflight) before any inference runs:
+#   * scenario_id            non-empty
+#   * sources                at least one
+#   * source_id              non-empty, non-whitespace, unique in the scenario
+#   * camera_id              must exist in the city config (phase2_city/config/city.yaml)
+#   * video_path             resolved relative to THIS file; must exist
+#   * start_time             timezone-aware ISO-8601 (e.g. "+05:30" or "Z")
+#
+# This is only an EXAMPLE; the referenced videos are not committed. Point
+# video_path at your own recorded clips. Run with:
+#   python -m phase2_city.replay \
+#     --scenario phase2_city/config/replay.example.yaml \
+#     --city-config phase2_city/config/city.yaml \
+#     --config phase1_anpr/config/config.yaml
+
+scenario_id: demo-city-01
+
+sources:
+  - source_id: cam01_clip_001
+    camera_id: CAM_01
+    video_path: ../../inputs/videos/cam01.mp4
+    start_time: "2026-08-31T10:00:00+05:30"
+
+  - source_id: cam02_clip_001
+    camera_id: CAM_02
+    video_path: ../../inputs/videos/cam02.mp4
+    start_time: "2026-08-31T10:03:00+05:30"
