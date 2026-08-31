@@ -377,3 +377,74 @@ def test_no_scored_crop_no_mapped_offset_falls_back_to_processing_time():
     ts = pipe._resolve_observation_timestamp(_track(last_seen=99), scored=[])
     parsed = datetime.fromisoformat(ts)
     assert parsed >= before.replace(microsecond=0)  # did not crash / fabricate
+
+
+# --- Step 19: optional source_id in the deterministic event id ---------------
+# source_id is an ingestion-only discriminator: it changes ONLY how event_id is
+# derived. It is not persisted as a DB column and not exposed via the API.
+
+import uuid
+
+
+def _pipe_with_source(source_id, obs_repo=None):
+    obs_repo = obs_repo or SQLiteObservationRepository(":memory:")
+    pipe = ANPRPipeline(
+        detector=FakeDetector(),
+        tracker=PlateTracker(max_age=2),
+        quality_scorer=QualityScorer(),
+        track_processor=TrackProcessor(FakeRectifier(), FakeOCR()),
+        normalizer=PlateNormalizer(),
+        confidence_scorer=ConfidenceScorer(accept_threshold=0.6),
+        observation_builder=ObservationBuilder(),
+        observation_repo=obs_repo,
+        camera_id="cam_01",
+        source_id=source_id,
+        timestamp_fn=lambda track: "2026-08-31T10:00:00+05:30",
+    )
+    return pipe, obs_repo
+
+
+def test_event_id_legacy_unchanged_when_source_none():
+    pipe, _ = _pipe_with_source(None)
+    expected = str(uuid.uuid5(uuid.NAMESPACE_URL, "citysight/obs/cam_01/7"))
+    assert pipe._event_id_for(_track(track_id=7)) == expected
+
+
+def test_event_id_includes_source_when_set():
+    pipe, _ = _pipe_with_source("vidA")
+    got = pipe._event_id_for(_track(track_id=7))
+    assert got == str(
+        uuid.uuid5(uuid.NAMESPACE_URL, "citysight/obs/cam_01/vidA/7"))
+    # Distinct from the legacy id, so the two never collide.
+    assert got != str(uuid.uuid5(uuid.NAMESPACE_URL, "citysight/obs/cam_01/7"))
+
+
+def test_source_id_blank_normalized_to_none():
+    pipe, _ = _pipe_with_source("   ")
+    assert pipe.source_id is None
+    assert pipe._event_id_for(_track(track_id=3)) == str(
+        uuid.uuid5(uuid.NAMESPACE_URL, "citysight/obs/cam_01/3"))
+
+
+def test_distinct_source_ids_avoid_collision_same_camera():
+    # Two videos from the same camera reuse track ids from 1; distinct
+    # source_ids keep their observations from colliding on event_id. Each
+    # pipeline is built immediately before it runs, matching the replay flow
+    # (and the fresh-per-source BYTETracker id counter).
+    obs_repo = SQLiteObservationRepository(":memory:")
+    p1, _ = _pipe_with_source("videoA", obs_repo=obs_repo)
+    p1.run(FrameSource(4))
+    p2, _ = _pipe_with_source("videoB", obs_repo=obs_repo)
+    p2.run(FrameSource(4))
+    assert obs_repo.count() == 2
+
+
+def test_same_camera_no_source_still_collides():
+    # Legacy behavior preserved: without source_id the identical track ids
+    # collide to a single row (idempotent reprocess).
+    obs_repo = SQLiteObservationRepository(":memory:")
+    p1, _ = _pipe_with_source(None, obs_repo=obs_repo)
+    p1.run(FrameSource(4))
+    p2, _ = _pipe_with_source(None, obs_repo=obs_repo)
+    p2.run(FrameSource(4))
+    assert obs_repo.count() == 1

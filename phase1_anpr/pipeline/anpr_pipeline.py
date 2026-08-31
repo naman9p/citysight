@@ -10,10 +10,17 @@ normalize -> confidence -> build canonical observation -> persist evidence +
 observation -> process accepted observation against the watchlist.
 
 Idempotency / one-observation-per-track:
-  event_id is deterministic per (camera_id, track_id) via uuid5. A per-run guard
-  prevents processing the same track twice, and the deterministic id lets the
-  repository (event_id PK) and watchlist (unique watchlist_id+event_id) reject
-  duplicates when a whole video is reprocessed.
+  event_id is deterministic per (camera_id, source_id, track_id) via uuid5. A
+  per-run guard prevents processing the same track twice, and the deterministic
+  id lets the repository (event_id PK) and watchlist (unique
+  watchlist_id+event_id) reject duplicates when a whole video is reprocessed.
+
+  ``source_id`` is optional (Step 19). Track ids restart at 1 for every recorded
+  video, so two different videos from the SAME camera would otherwise mint
+  identical event ids and silently collide (INSERT OR IGNORE). Supplying a
+  distinct ``source_id`` per video disambiguates them. When ``source_id`` is
+  None/empty the legacy id derivation is preserved byte-for-byte, so existing
+  event ids and stores are unaffected.
 """
 
 import math
@@ -95,7 +102,7 @@ class ANPRPipeline:
                  normalizer, confidence_scorer, observation_builder,
                  observation_repo, evidence_store=None, watchlist_repo=None,
                  camera_id="cam_01", model_version="phase1-anpr-0.1.0",
-                 timestamp_fn=None, video_start_time=None):
+                 timestamp_fn=None, video_start_time=None, source_id=None):
         self.detector = detector
         self.tracker = tracker
         self.quality_scorer = quality_scorer
@@ -107,6 +114,12 @@ class ANPRPipeline:
         self.evidence_store = evidence_store
         self.watchlist_repo = watchlist_repo
         self.camera_id = camera_id
+        # Optional recorded-video source discriminator (Step 19). Empty/blank is
+        # normalized to None so it behaves identically to the legacy single-video
+        # path (no extra event-id segment, unchanged ids).
+        if isinstance(source_id, str):
+            source_id = source_id.strip() or None
+        self.source_id = source_id or None
         self.model_version = model_version
         # Kept as None (not the default fn) so we can honor the documented
         # priority: an explicit timestamp_fn always wins over video start time.
@@ -139,9 +152,15 @@ class ANPRPipeline:
     # --- finalize -------------------------------------------------------------
 
     def _event_id_for(self, track) -> str:
-        return str(uuid.uuid5(
-            uuid.NAMESPACE_URL,
-            f"citysight/obs/{self.camera_id}/{track.track_id}"))
+        # Legacy path (source_id is None) keeps the exact original name so ids
+        # generated before Step 19 remain identical. When a source_id is set it
+        # adds one segment, disambiguating identical track ids across videos.
+        if self.source_id:
+            name = (f"citysight/obs/{self.camera_id}/{self.source_id}"
+                    f"/{track.track_id}")
+        else:
+            name = f"citysight/obs/{self.camera_id}/{track.track_id}"
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
 
     def _store_evidence(self, event_id, crop) -> Optional[str]:
         """Persist the best crop and return a reference; safe on any failure."""
@@ -252,11 +271,17 @@ class ANPRPipeline:
 
 
 def build_pipeline_from_config(config, observation_repo, evidence_store=None,
-                               watchlist_repo=None):
+                               watchlist_repo=None, *, camera_id=None,
+                               source_id=None, video_start_time=None):
     """Construct a pipeline from config using the real components.
 
     Raises DetectorError (clear, actionable) if the YOLO weights are missing —
     weights are never downloaded automatically.
+
+    ``camera_id``, ``source_id`` and ``video_start_time`` are optional per-source
+    overrides used by the multi-video replay runner (Step 19). When left as None
+    the values from ``config['video']`` are used, so the single-video path is
+    unchanged.
     """
     from phase1_anpr.detection.detector import PlateDetector
     from phase1_anpr.tracking.tracker import PlateTracker
@@ -270,9 +295,12 @@ def build_pipeline_from_config(config, observation_repo, evidence_store=None,
 
     detector = PlateDetector.from_config(config)  # raises if weights missing
     # Validate the optional recorded-video start time up front, before any
-    # (expensive) YOLO/OCR inference can begin.
+    # (expensive) YOLO/OCR inference can begin. An explicit override wins over
+    # the configured default.
     video_cfg = config.get("video", {})
-    video_start_time = parse_video_start_time(video_cfg.get("start_time"))
+    start_time_value = video_start_time if video_start_time is not None \
+        else video_cfg.get("start_time")
+    video_start_time = parse_video_start_time(start_time_value)
     tracking = config.get("tracking", {})
     tracker = PlateTracker(
         track_buffer=tracking.get("track_buffer", 30),
@@ -295,7 +323,9 @@ def build_pipeline_from_config(config, observation_repo, evidence_store=None,
         observation_builder=observation_builder,
         observation_repo=observation_repo, evidence_store=evidence_store,
         watchlist_repo=watchlist_repo,
-        camera_id=config.get("video", {}).get("camera_id", "cam_01"),
+        camera_id=camera_id if camera_id is not None
+        else video_cfg.get("camera_id", "cam_01"),
+        source_id=source_id,
         model_version=config.get("models", {}).get("model_version",
                                                     "phase1-anpr-0.1.0"),
         video_start_time=video_start_time,

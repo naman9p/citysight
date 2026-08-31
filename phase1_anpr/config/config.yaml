@@ -19,6 +19,25 @@ video:
   # or "2026-08-31T04:30:00Z". Naive values are rejected.
   start_time: null
 
+# Optional: multi-camera recorded-video replay (Step 19).
+# When this list is present and non-empty, `python -m phase1_anpr.demo` replays
+# each source in order into the SAME stores instead of the single `video` above.
+# Each source gets its own camera_id + source_id, and source_id is folded into
+# the deterministic event id so identical track ids from different videos never
+# collide. Omit or leave empty to keep the single-video behavior unchanged.
+#   - camera_id defaults to video.camera_id when not given
+#   - source_id defaults to the video file name (stem) when not given
+#   - start_time defaults to video.start_time when not given
+# sources:
+#   - video: "inputs/videos/cam_01_morning.mp4"
+#     camera_id: "cam_01"
+#     source_id: "cam_01_morning"
+#     start_time: "2026-08-31T08:00:00+05:30"
+#   - video: "inputs/videos/cam_02_morning.mp4"
+#     camera_id: "cam_02"
+#     source_id: "cam_02_morning"
+#     start_time: "2026-08-31T08:00:00+05:30"
+
 detection:
   # YOLO weights used for license plate detection (loaded in a later step).
   weights_path: "weights/plate_detector.pt"
