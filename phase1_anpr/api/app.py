@@ -19,6 +19,7 @@ from urllib.parse import urlsplit, parse_qs, unquote
 from phase1_anpr.normalization.plate_normalizer import PlateNormalizer
 from phase1_anpr.api.dashboard import DASHBOARD_HTML
 from phase1_anpr.persistence.watchlist_repository import WatchlistError
+from phase2_city.trajectory import TrajectoryQueryError, TrajectoryDataError
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 500
@@ -62,15 +63,22 @@ def _parse_limit(qs: dict) -> int:
 class _Router:
     """Resolves a path/query into a JSON-serializable result or raises ApiError."""
 
-    def __init__(self, repository, normalizer=None, watchlist_repo=None):
+    def __init__(self, repository, normalizer=None, watchlist_repo=None,
+                 trajectory_reconstructor=None):
         self.repo = repository
         self.normalizer = normalizer or PlateNormalizer()
         self.watchlist = watchlist_repo
+        self.trajectory = trajectory_reconstructor
 
     def _require_watchlist(self):
         if self.watchlist is None:
             raise ApiError(404, "watchlist not enabled")
         return self.watchlist
+
+    def _require_trajectory(self):
+        if self.trajectory is None:
+            raise ApiError(404, "trajectory not enabled")
+        return self.trajectory
 
     def dispatch(self, path: str, qs: dict):
         if path == "/health":
@@ -118,6 +126,28 @@ class _Router:
                 return (201, wl.add(body.get("plate"), body.get("label")))
             except WatchlistError as e:
                 raise ApiError(400, str(e))
+
+        if path == "/v1/trajectories":
+            reconstructor = self._require_trajectory()
+            if not isinstance(body, dict):
+                raise ApiError(400, "JSON object body required")
+            plate = body.get("plate")
+            if plate is None:
+                raise ApiError(400, "plate is required")
+            if not isinstance(plate, str):
+                raise ApiError(400, "plate must be a string")
+            try:
+                trajectory = reconstructor.reconstruct(
+                    plate,
+                    start=body.get("start"),
+                    end=body.get("end"),
+                )
+            except TrajectoryQueryError as e:
+                raise ApiError(400, str(e))
+            except TrajectoryDataError as e:
+                raise ApiError(500, str(e))
+            return (200, trajectory.to_dict())
+
         raise ApiError(404, "not found")
 
     def dispatch_delete(self, path: str):
@@ -132,8 +162,10 @@ class _Router:
         raise ApiError(404, "not found")
 
 
-def make_handler(repository, normalizer=None, watchlist_repo=None):
-    router = _Router(repository, normalizer, watchlist_repo)
+def make_handler(repository, normalizer=None, watchlist_repo=None,
+                 trajectory_reconstructor=None):
+    router = _Router(repository, normalizer, watchlist_repo,
+                     trajectory_reconstructor=trajectory_reconstructor)
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status, payload):
@@ -199,7 +231,8 @@ def make_handler(repository, normalizer=None, watchlist_repo=None):
 
 
 def create_server(repository, host="127.0.0.1", port=0, normalizer=None,
-                  watchlist_repo=None):
+                  watchlist_repo=None, trajectory_reconstructor=None):
     """Build a ThreadingHTTPServer. port=0 binds an ephemeral port."""
     return ThreadingHTTPServer(
-        (host, port), make_handler(repository, normalizer, watchlist_repo))
+        (host, port), make_handler(repository, normalizer, watchlist_repo,
+                                  trajectory_reconstructor=trajectory_reconstructor))
