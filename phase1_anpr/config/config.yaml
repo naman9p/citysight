@@ -122,6 +122,16 @@ persistence:
   # Local evidence store base dir; swappable for MinIO/S3 later.
   evidence_dir: "outputs/plates/evidence"
 
+# Phase 2 cross-camera trajectory reconstruction (Step 20). Read by
+# TrajectoryReconstructor.from_config; module defaults apply if omitted.
+trajectory:
+  # Consecutive sightings of the same plate at the SAME camera within this many
+  # seconds are collapsed into one camera visit (one physical pass).
+  duplicate_window_seconds: 30
+  # Safety cap on observation rows read per trajectory query. The store returns
+  # newest-first, so reaching the cap flags the result as truncated.
+  max_observations: 500
+
 models:
   model_version: "phase1-anpr-0.1.0"
   detector_name: "yolo-plate"

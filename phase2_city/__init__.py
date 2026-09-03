@@ -20,6 +20,15 @@ from phase2_city.scenario import (
     ScenarioError,
     load_scenario,
 )
+from phase2_city.trajectory import (
+    Trajectory,
+    TrajectorySighting,
+    TrajectoryTransition,
+    TrajectoryReconstructor,
+    TrajectoryError,
+    TrajectoryQueryError,
+    TrajectoryDataError,
+)
 
 __all__ = [
     "Camera",
@@ -36,4 +45,11 @@ __all__ = [
     "ScenarioResult",
     "ScenarioError",
     "load_scenario",
+    "Trajectory",
+    "TrajectorySighting",
+    "TrajectoryTransition",
+    "TrajectoryReconstructor",
+    "TrajectoryError",
+    "TrajectoryQueryError",
+    "TrajectoryDataError",
 ]

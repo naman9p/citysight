@@ -70,8 +70,14 @@ class ObservationRepository(ABC):
         """Return the most recent observations, newest first."""
 
     @abstractmethod
-    def list_by_plate(self, plate_normalized: str, limit: int = 50) -> list:
-        """Return observations for an exact normalized plate, newest first."""
+    def list_by_plate(self, plate_normalized: str, limit: int = 50, *,
+                      start=None, end=None) -> list:
+        """Return observations for an exact normalized plate, newest first.
+
+        Optional ``start`` / ``end`` are timezone-aware UTC ``datetime`` bounds
+        that, when given, restrict results to ``start <= timestamp <= end``
+        (inclusive). ``None`` means unbounded on that side.
+        """
 
     @abstractmethod
     def list_by_camera(self, camera_id: str, limit: int = 50) -> list:
@@ -136,12 +142,24 @@ class SQLiteObservationRepository(ObservationRepository):
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def list_by_plate(self, plate_normalized: str, limit: int = 50) -> list:
-        rows = self._conn.execute(
-            "SELECT * FROM plate_observations WHERE plate_normalized = ? "
-            "ORDER BY timestamp DESC, event_id DESC LIMIT ?",
-            (plate_normalized, int(limit)),
-        ).fetchall()
+    def list_by_plate(self, plate_normalized: str, limit: int = 50, *,
+                      start=None, end=None) -> list:
+        # Canonical timestamps are stored as UTC ISO-8601 strings (the pipeline's
+        # _resolve_observation_timestamp / _default_timestamp both emit "+00:00"),
+        # so lexicographic comparison on the indexed timestamp column is
+        # chronological and the >= / <= bounds are inclusive. `start`/`end` are
+        # tz-aware UTC datetimes; we compare against their isoformat() strings.
+        sql = "SELECT * FROM plate_observations WHERE plate_normalized = ?"
+        params = [plate_normalized]
+        if start is not None:
+            sql += " AND timestamp >= ?"
+            params.append(start.isoformat())
+        if end is not None:
+            sql += " AND timestamp <= ?"
+            params.append(end.isoformat())
+        sql += " ORDER BY timestamp DESC, event_id DESC LIMIT ?"
+        params.append(int(limit))
+        rows = self._conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
     def list_by_camera(self, camera_id: str, limit: int = 50) -> list:
