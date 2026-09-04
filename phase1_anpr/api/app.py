@@ -1,10 +1,15 @@
-"""Read-only HTTP API for cameras, observations, and exact plate search (Step 13).
+"""Read-only HTTP API for observations, plates, watchlist, trajectories, and
+camera topology (Steps 13, 15, 21, 22).
 
 Per CLAUDE.md this uses only the Python standard library (`http.server`) — no
 FastAPI/new dependencies. Handlers delegate to `ObservationRepository`; no SQL is
 issued from the routing layer. Exact plate search normalizes the query with the
 existing `PlateNormalizer`. Abstained rows are already stored without a plate
 identity, so they are returned as-is (plate fields NULL).
+
+Step 22 adds read-only camera topology endpoints (``/v1/cameras``,
+``/v1/cameras/{id}``, ``/v1/cameras/{id}/links``, ``/v1/links``) backed by
+a ``CityCameraGraph`` snapshot.
 
 `create_server(repository, ...)` builds a `ThreadingHTTPServer` bound to a given
 host/port (use port 0 in tests for an ephemeral port), so tests can drive it over
@@ -60,15 +65,41 @@ def _parse_limit(qs: dict) -> int:
     return limit
 
 
+def _camera_to_dict(camera) -> dict:
+    """Serialize a Camera dataclass to a JSON-safe dict (Step 22)."""
+    return {
+        "camera_id": camera.camera_id,
+        "name": camera.name,
+        "latitude": camera.latitude,
+        "longitude": camera.longitude,
+        "road_name": camera.road_name,
+        "heading_deg": camera.heading_deg,
+        "zone": camera.zone,
+        "enabled": camera.enabled,
+    }
+
+
+def _link_to_dict(link) -> dict:
+    """Serialize a CameraLink dataclass to a JSON-safe dict (Step 22)."""
+    return {
+        "from_camera_id": link.from_camera_id,
+        "to_camera_id": link.to_camera_id,
+        "distance_m": link.distance_m,
+        "road_name": link.road_name,
+        "travel_direction": link.travel_direction,
+    }
+
+
 class _Router:
     """Resolves a path/query into a JSON-serializable result or raises ApiError."""
 
     def __init__(self, repository, normalizer=None, watchlist_repo=None,
-                 trajectory_reconstructor=None):
+                 trajectory_reconstructor=None, city_graph=None):
         self.repo = repository
         self.normalizer = normalizer or PlateNormalizer()
         self.watchlist = watchlist_repo
         self.trajectory = trajectory_reconstructor
+        self.graph = city_graph
 
     def _require_watchlist(self):
         if self.watchlist is None:
@@ -79,6 +110,11 @@ class _Router:
         if self.trajectory is None:
             raise ApiError(404, "trajectory not enabled")
         return self.trajectory
+
+    def _require_graph(self):
+        if self.graph is None:
+            raise ApiError(404, "camera topology not enabled")
+        return self.graph
 
     def dispatch(self, path: str, qs: dict):
         if path == "/health":
@@ -114,6 +150,47 @@ class _Router:
             camera_id = unquote(m.group(1))
             rows = self.repo.list_by_camera(camera_id, _parse_limit(qs))
             return [_to_response(r) for r in rows]
+
+        # --- Step 22: camera topology endpoints (read-only) ---------------
+
+        if path == "/v1/cameras":
+            graph = self._require_graph()
+            cameras = sorted(graph.list_cameras(),
+                             key=lambda c: c.camera_id)
+            return [_camera_to_dict(c) for c in cameras]
+
+        if path == "/v1/links":
+            graph = self._require_graph()
+            links = sorted(graph.list_links(),
+                           key=lambda lk: (lk.from_camera_id, lk.to_camera_id))
+            return [_link_to_dict(lk) for lk in links]
+
+        m = re.fullmatch(r"/v1/cameras/([^/]+)/links", path)
+        if m:
+            graph = self._require_graph()
+            camera_id = unquote(m.group(1))
+            if graph.get_camera(camera_id) is None:
+                raise ApiError(404, f"camera not found: {camera_id}")
+            outgoing = sorted(
+                graph.get_outgoing_links(camera_id),
+                key=lambda lk: (lk.from_camera_id, lk.to_camera_id))
+            incoming = sorted(
+                graph.get_incoming_links(camera_id),
+                key=lambda lk: (lk.from_camera_id, lk.to_camera_id))
+            return {
+                "camera_id": camera_id,
+                "outgoing": [_link_to_dict(lk) for lk in outgoing],
+                "incoming": [_link_to_dict(lk) for lk in incoming],
+            }
+
+        m = re.fullmatch(r"/v1/cameras/([^/]+)", path)
+        if m:
+            graph = self._require_graph()
+            camera_id = unquote(m.group(1))
+            camera = graph.get_camera(camera_id)
+            if camera is None:
+                raise ApiError(404, f"camera not found: {camera_id}")
+            return _camera_to_dict(camera)
 
         raise ApiError(404, "not found")
 
@@ -163,9 +240,10 @@ class _Router:
 
 
 def make_handler(repository, normalizer=None, watchlist_repo=None,
-                 trajectory_reconstructor=None):
+                 trajectory_reconstructor=None, city_graph=None):
     router = _Router(repository, normalizer, watchlist_repo,
-                     trajectory_reconstructor=trajectory_reconstructor)
+                     trajectory_reconstructor=trajectory_reconstructor,
+                     city_graph=city_graph)
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status, payload):
@@ -231,8 +309,10 @@ def make_handler(repository, normalizer=None, watchlist_repo=None,
 
 
 def create_server(repository, host="127.0.0.1", port=0, normalizer=None,
-                  watchlist_repo=None, trajectory_reconstructor=None):
+                  watchlist_repo=None, trajectory_reconstructor=None,
+                  city_graph=None):
     """Build a ThreadingHTTPServer. port=0 binds an ephemeral port."""
     return ThreadingHTTPServer(
         (host, port), make_handler(repository, normalizer, watchlist_repo,
-                                  trajectory_reconstructor=trajectory_reconstructor))
+                                  trajectory_reconstructor=trajectory_reconstructor,
+                                  city_graph=city_graph))
