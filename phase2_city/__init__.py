@@ -29,6 +29,14 @@ from phase2_city.trajectory import (
     TrajectoryQueryError,
     TrajectoryDataError,
 )
+from phase2_city.fingerprint import (
+    DEFAULT_FINGERPRINT_WEIGHTS,
+    FingerprintValidationError,
+    VehicleFingerprint,
+    FingerprintFieldComparison,
+    FingerprintComparison,
+    VehicleFingerprintScorer,
+)
 
 __all__ = [
     "Camera",
@@ -52,4 +60,10 @@ __all__ = [
     "TrajectoryError",
     "TrajectoryQueryError",
     "TrajectoryDataError",
+    "DEFAULT_FINGERPRINT_WEIGHTS",
+    "FingerprintValidationError",
+    "VehicleFingerprint",
+    "FingerprintFieldComparison",
+    "FingerprintComparison",
+    "VehicleFingerprintScorer",
 ]
