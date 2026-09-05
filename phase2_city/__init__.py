@@ -37,6 +37,22 @@ from phase2_city.fingerprint import (
     FingerprintComparison,
     VehicleFingerprintScorer,
 )
+from phase2_city.vehicle_detection import (
+    COCO_VEHICLE_CLASSES,
+    DEFAULT_VEHICLE_WEIGHTS_PATH,
+    DEFAULT_VEHICLE_CONFIDENCE_THRESHOLD,
+    VehicleDetectorError,
+    VehicleDetectionValidationError,
+    VehicleDetection,
+    UltralyticsVehicleDetector,
+    crop_vehicle,
+)
+from phase2_city.plate_vehicle_association import (
+    DEFAULT_MIN_PLATE_CONTAINMENT,
+    VehicleAssociationError,
+    PlateVehicleAssociation,
+    associate_plate_to_vehicle,
+)
 
 __all__ = [
     "Camera",
@@ -66,4 +82,16 @@ __all__ = [
     "FingerprintFieldComparison",
     "FingerprintComparison",
     "VehicleFingerprintScorer",
+    "COCO_VEHICLE_CLASSES",
+    "DEFAULT_VEHICLE_WEIGHTS_PATH",
+    "DEFAULT_VEHICLE_CONFIDENCE_THRESHOLD",
+    "VehicleDetectorError",
+    "VehicleDetectionValidationError",
+    "VehicleDetection",
+    "UltralyticsVehicleDetector",
+    "crop_vehicle",
+    "DEFAULT_MIN_PLATE_CONTAINMENT",
+    "VehicleAssociationError",
+    "PlateVehicleAssociation",
+    "associate_plate_to_vehicle",
 ]
