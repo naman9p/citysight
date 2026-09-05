@@ -53,6 +53,16 @@ from phase2_city.plate_vehicle_association import (
     PlateVehicleAssociation,
     associate_plate_to_vehicle,
 )
+from phase2_city.vehicle_attributes import (
+    SUPPORTED_VEHICLE_COLOURS,
+    SUPPORTED_VEHICLE_CLASSES,
+    VehicleAttributesValidationError,
+    VehicleAttributes,
+    extract_vehicle_colour,
+    vehicle_attributes_from_association,
+    extract_vehicle_attributes,
+    fingerprint_from_observation_and_attributes,
+)
 
 __all__ = [
     "Camera",
@@ -94,4 +104,12 @@ __all__ = [
     "VehicleAssociationError",
     "PlateVehicleAssociation",
     "associate_plate_to_vehicle",
+    "SUPPORTED_VEHICLE_COLOURS",
+    "SUPPORTED_VEHICLE_CLASSES",
+    "VehicleAttributesValidationError",
+    "VehicleAttributes",
+    "extract_vehicle_colour",
+    "vehicle_attributes_from_association",
+    "extract_vehicle_attributes",
+    "fingerprint_from_observation_and_attributes",
 ]
