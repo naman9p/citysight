@@ -23,13 +23,24 @@ Idempotency / one-observation-per-track:
   event ids and stores are unaffected.
 """
 
+from __future__ import annotations
+
+import logging
 import math
 import os
 import tempfile
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
+
+
+if TYPE_CHECKING:
+    from phase2_city.fingerprint import VehicleFingerprint
+    from phase2_city.vehicle_attributes import VehicleAttributes
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,6 +50,8 @@ class PipelineResult:
     observation: object          # PlateObservation
     inserted: bool               # False if the observation already existed
     alerts: list                 # alerts newly created for this observation
+    vehicle_attributes: Optional[VehicleAttributes] = None
+    vehicle_fingerprint: Optional[VehicleFingerprint] = None
 
 
 def _default_timestamp(track) -> str:
@@ -102,7 +115,8 @@ class ANPRPipeline:
                  normalizer, confidence_scorer, observation_builder,
                  observation_repo, evidence_store=None, watchlist_repo=None,
                  camera_id="cam_01", model_version="phase1-anpr-0.1.0",
-                 timestamp_fn=None, video_start_time=None, source_id=None):
+                 timestamp_fn=None, video_start_time=None, source_id=None,
+                 vehicle_enricher=None):
         self.detector = detector
         self.tracker = tracker
         self.quality_scorer = quality_scorer
@@ -113,6 +127,7 @@ class ANPRPipeline:
         self.observation_repo = observation_repo
         self.evidence_store = evidence_store
         self.watchlist_repo = watchlist_repo
+        self.vehicle_enricher = vehicle_enricher
         self.camera_id = camera_id
         # Optional recorded-video source discriminator (Step 19). Empty/blank is
         # normalized to None so it behaves identically to the legacy single-video
@@ -146,7 +161,31 @@ class ANPRPipeline:
                 video_timestamp)
         detections = self.detector.detect(frame, frame_number)
         crops = [self.detector.crop(frame, d) for d in detections]
-        self.tracker.update(detections, frame_number, crops)
+        touched_tracks = self.tracker.update(detections, frame_number, crops)
+
+        if self.vehicle_enricher is not None:
+            eligible_tracks = []
+            for track in touched_tracks:
+                if not track.candidates:
+                    continue
+                candidate_frame, candidate_crop, _ = track.candidates[-1]
+                if candidate_frame != frame_number:
+                    continue
+                if self.quality_scorer.is_valid(candidate_crop):
+                    eligible_tracks.append(track)
+            if eligible_tracks:
+                try:
+                    self.vehicle_enricher.enrich_frame(
+                        frame, frame_number, eligible_tracks)
+                except Exception as exc:
+                    # A custom/injected optional collaborator must not be able
+                    # to interrupt plate tracking or later ANPR finalization.
+                    _LOGGER.warning(
+                        "Optional track vehicle enrichment failed for frame "
+                        "%s: %s",
+                        frame_number,
+                        exc,
+                    )
         return detections
 
     # --- finalize -------------------------------------------------------------
@@ -248,8 +287,27 @@ class ANPRPipeline:
             # process_observation only alerts on accepted exact matches.
             alerts = self.watchlist_repo.process_observation(observation)
 
+        vehicle_attributes = None
+        vehicle_fingerprint = None
+        if self.vehicle_enricher is not None:
+            try:
+                vehicle_attributes, vehicle_fingerprint = \
+                    self.vehicle_enricher.finalize_track(
+                        track.track_id, observation)
+            except Exception as exc:
+                # Core persistence/watchlist work is already complete.  Keep
+                # optional result adaptation entirely non-fatal.
+                _LOGGER.warning(
+                    "Optional track vehicle finalization failed for track "
+                    "%s: %s",
+                    track.track_id,
+                    exc,
+                )
+
         return PipelineResult(observation=observation, inserted=inserted,
-                              alerts=alerts)
+                              alerts=alerts,
+                              vehicle_attributes=vehicle_attributes,
+                              vehicle_fingerprint=vehicle_fingerprint)
 
     def finalize(self) -> List[PipelineResult]:
         """Flush every finished/remaining track into canonical observations."""
@@ -315,6 +373,7 @@ def build_pipeline_from_config(config, observation_repo, evidence_store=None,
     normalizer = PlateNormalizer.from_config(config)
     confidence_scorer = ConfidenceScorer.from_config(config)
     observation_builder = ObservationBuilder()
+    vehicle_enricher = _build_vehicle_enricher(config)
 
     return ANPRPipeline(
         detector=detector, tracker=tracker, quality_scorer=quality_scorer,
@@ -329,9 +388,42 @@ def build_pipeline_from_config(config, observation_repo, evidence_store=None,
         model_version=config.get("models", {}).get("model_version",
                                                     "phase1-anpr-0.1.0"),
         video_start_time=video_start_time,
+        vehicle_enricher=vehicle_enricher,
     )
 
 
 def _require_ocr_backend():
     from phase1_anpr.ocr.plate_ocr import PaddleOCRBackend
     return PaddleOCRBackend()
+
+
+def _build_vehicle_enricher(config):
+    """Build optional Step 26 enrichment without eager model loading."""
+    enrichment = config.get("vehicle_enrichment")
+    if enrichment is None:
+        return None
+    if not isinstance(enrichment, dict):
+        _LOGGER.warning(
+            "Ignoring invalid vehicle_enrichment config: expected a mapping")
+        return None
+    if enrichment.get("enabled", False) is not True:
+        return None
+
+    try:
+        from phase2_city.vehicle_detection import (
+            DEFAULT_VEHICLE_WEIGHTS_PATH,
+            UltralyticsVehicleDetector,
+        )
+        from phase2_city.vehicle_enrichment import TrackVehicleEnricher
+
+        detector = UltralyticsVehicleDetector(
+            weights_path=enrichment.get(
+                "weights_path", DEFAULT_VEHICLE_WEIGHTS_PATH),
+            device=enrichment.get("device", "cpu"),
+        )
+        return TrackVehicleEnricher(detector)
+    except Exception as exc:
+        # Optional construction/configuration problems disable enrichment while
+        # preserving the normal Phase 1 plate pipeline.
+        _LOGGER.warning("Optional vehicle enrichment is disabled: %s", exc)
+        return None

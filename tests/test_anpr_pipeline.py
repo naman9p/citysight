@@ -11,6 +11,7 @@ from phase1_anpr.normalization.plate_normalizer import PlateNormalizer
 from phase1_anpr.observation.observation_builder import ObservationBuilder
 from phase1_anpr.pipeline.anpr_pipeline import (
     ANPRPipeline,
+    _build_vehicle_enricher,
     build_pipeline_from_config,
     parse_video_start_time,
 )
@@ -21,6 +22,10 @@ from phase1_anpr.persistence import (
     SQLiteObservationRepository,
     SQLiteWatchlistRepository,
 )
+from phase2_city.fingerprint import VehicleFingerprint
+from phase2_city.vehicle_attributes import VehicleAttributes
+from phase2_city.vehicle_detection import VehicleDetection
+from phase2_city.vehicle_enrichment import TrackVehicleEnricher
 
 
 # --- fakes --------------------------------------------------------------------
@@ -28,17 +33,20 @@ from phase1_anpr.persistence import (
 class FakeDetector:
     """Emits one detection per frame for a fixed bbox; crops are dummy arrays."""
 
-    def __init__(self, per_frame=1, conf=0.9):
+    def __init__(self, per_frame=1, conf=0.9, class_id=0, crop_fn=None):
         self.per_frame = per_frame
         self.conf = conf
+        self.class_id = class_id
+        self.crop_fn = crop_fn
 
     def detect(self, frame, frame_number):
         return [Detection(bbox=(10, 10, 90, 40), confidence=self.conf,
-                          class_id=0, frame_number=frame_number)
+                          class_id=self.class_id, frame_number=frame_number)
                 for _ in range(self.per_frame)]
 
-    @staticmethod
-    def crop(frame, detection):
+    def crop(self, frame, detection):
+        if self.crop_fn is not None:
+            return self.crop_fn(frame, detection)
         return np.full((30, 80, 3), 127, dtype=np.uint8)
 
 
@@ -98,12 +106,13 @@ class FrameSource:
 
 
 def make_pipeline(detector=None, ocr=None, obs_repo=None, wl_repo=None,
-                  evidence=None, accept_threshold=0.6):
+                  evidence=None, accept_threshold=0.6,
+                  quality_scorer=None, vehicle_enricher=None):
     obs_repo = obs_repo or SQLiteObservationRepository(":memory:")
     return ANPRPipeline(
         detector=detector or FakeDetector(),
         tracker=PlateTracker(max_age=2),
-        quality_scorer=QualityScorer(),
+        quality_scorer=quality_scorer or QualityScorer(),
         track_processor=TrackProcessor(FakeRectifier(), ocr or FakeOCR()),
         normalizer=PlateNormalizer(),
         confidence_scorer=ConfidenceScorer(accept_threshold=accept_threshold),
@@ -113,6 +122,7 @@ def make_pipeline(detector=None, ocr=None, obs_repo=None, wl_repo=None,
         watchlist_repo=wl_repo,
         camera_id="cam_01",
         timestamp_fn=lambda track: "2026-08-31T10:00:00+05:30",
+        vehicle_enricher=vehicle_enricher,
     ), obs_repo
 
 
@@ -448,3 +458,207 @@ def test_same_camera_no_source_still_collides():
     p2, _ = _pipe_with_source(None, obs_repo=obs_repo)
     p2.run(FrameSource(4))
     assert obs_repo.count() == 1
+
+
+# --- Step 26: optional track-level vehicle enrichment -----------------------
+
+class FakeWholeVehicleDetector:
+    def __init__(self, vehicle_class="car", unmatched=False, error=None):
+        self.vehicle_class = vehicle_class
+        self.unmatched = unmatched
+        self.error = error
+        self.calls = []
+
+    def detect(self, frame, frame_number):
+        self.calls.append((frame, frame_number))
+        if self.error is not None:
+            raise self.error
+        if self.unmatched:
+            return []
+        class_id = {"car": 2, "motorcycle": 3, "bus": 5, "truck": 7}[
+            self.vehicle_class]
+        return [VehicleDetection(
+            bbox=(0, 0, 100, 100),
+            confidence=0.85,
+            class_id=class_id,
+            vehicle_class=self.vehicle_class,
+            frame_number=frame_number,
+        )]
+
+
+def test_vehicle_enrichment_is_disabled_by_default():
+    pipe, repo = make_pipeline()
+
+    results = pipe.run(FrameSource(2))
+
+    assert pipe.vehicle_enricher is None
+    assert len(results) == 1
+    assert results[0].vehicle_attributes is None
+    assert results[0].vehicle_fingerprint is None
+    assert repo.get(results[0].observation.event_id)["plate_normalized"] == \
+        "MH12AB1234"
+
+
+def test_invalid_first_crop_does_not_attempt_but_later_valid_crop_does():
+    def crop_for_frame(frame, detection):
+        if detection.frame_number == 0:
+            return np.zeros((10, 10, 3), dtype=np.uint8)
+        return np.zeros((30, 80, 3), dtype=np.uint8)
+
+    whole_vehicle_detector = FakeWholeVehicleDetector()
+    enricher = TrackVehicleEnricher(whole_vehicle_detector)
+    pipe, _ = make_pipeline(
+        detector=FakeDetector(crop_fn=crop_for_frame),
+        quality_scorer=QualityScorer(
+            min_plate_width=60, min_plate_height=20),
+        vehicle_enricher=enricher,
+    )
+
+    pipe.process_frame(np.zeros((100, 100, 3), dtype=np.uint8), 0)
+    assert whole_vehicle_detector.calls == []
+    assert enricher.attempted_track_ids == set()
+
+    pipe.process_frame(np.zeros((100, 100, 3), dtype=np.uint8), 1)
+    assert len(whole_vehicle_detector.calls) == 1
+    assert enricher.attempted_track_ids
+
+
+def test_process_frame_return_value_remains_plate_detections():
+    whole_vehicle_detector = FakeWholeVehicleDetector()
+    pipe, _ = make_pipeline(
+        detector=FakeDetector(class_id=7),
+        vehicle_enricher=TrackVehicleEnricher(whole_vehicle_detector),
+    )
+
+    detections = pipe.process_frame(
+        np.zeros((100, 100, 3), dtype=np.uint8), 0)
+
+    assert len(detections) == 1
+    assert detections[0].class_id == 7
+    assert detections[0].bbox == (10, 10, 90, 40)
+
+
+def test_successful_enrichment_is_transient_pipeline_result_only():
+    attributes = VehicleAttributes(
+        vehicle_colour="blue",
+        colour_confidence=0.8,
+        vehicle_class="car",
+        class_confidence=0.85,
+    )
+    whole_vehicle_detector = FakeWholeVehicleDetector(vehicle_class="car")
+    enricher = TrackVehicleEnricher(
+        whole_vehicle_detector,
+        attribute_extractor=lambda crop, association: attributes,
+    )
+    pipe, repo = make_pipeline(
+        # A plate-model class ID that overlaps COCO truck must remain irrelevant.
+        detector=FakeDetector(class_id=7),
+        vehicle_enricher=enricher,
+    )
+
+    [result] = pipe.run(FrameSource(3))
+
+    assert len(whole_vehicle_detector.calls) == 1
+    assert result.vehicle_attributes is attributes
+    assert result.vehicle_fingerprint == VehicleFingerprint(
+        normalized_plate="MH12AB1234",
+        vehicle_colour="blue",
+        vehicle_class="car",
+    )
+    stored = repo.get(result.observation.event_id)
+    assert "vehicle_colour" not in stored
+    assert "vehicle_class" not in stored
+    assert stored["plate_normalized"] == "MH12AB1234"
+
+
+def test_clean_unmatched_pipeline_result_has_plate_only_fingerprint():
+    pipe, _ = make_pipeline(
+        vehicle_enricher=TrackVehicleEnricher(
+            FakeWholeVehicleDetector(unmatched=True)))
+
+    [result] = pipe.run(FrameSource(2))
+
+    assert result.vehicle_attributes is None
+    assert result.vehicle_fingerprint == VehicleFingerprint(
+        normalized_plate="MH12AB1234")
+
+
+def test_process_frame_enrichment_exception_does_not_break_persistence():
+    class ExplodingEnricher:
+        def enrich_frame(self, frame, frame_number, tracks):
+            raise RuntimeError("optional enrichment failed")
+
+        def finalize_track(self, track_id, observation):
+            return None, None
+
+    pipe, repo = make_pipeline(vehicle_enricher=ExplodingEnricher())
+
+    [result] = pipe.run(FrameSource(2))
+
+    assert result.observation.plate_normalized == "MH12AB1234"
+    assert repo.count() == 1
+
+
+def test_fingerprint_failure_cannot_break_evidence_persistence_or_watchlist():
+    attributes = VehicleAttributes(
+        vehicle_class="car", class_confidence=0.85)
+
+    def fail_fingerprint(observation, attributes):
+        raise RuntimeError("fingerprint failed")
+
+    wl = SQLiteWatchlistRepository(":memory:")
+    wl.add("MH12AB1234", label="stolen")
+    evidence = FakeEvidenceStore()
+    enricher = TrackVehicleEnricher(
+        FakeWholeVehicleDetector(),
+        attribute_extractor=lambda crop, association: attributes,
+        fingerprint_adapter=fail_fingerprint,
+    )
+    pipe, repo = make_pipeline(
+        wl_repo=wl, evidence=evidence, vehicle_enricher=enricher)
+
+    [result] = pipe.run(FrameSource(2))
+
+    assert result.vehicle_attributes is attributes
+    assert result.vehicle_fingerprint is None
+    assert repo.count() == 1
+    assert evidence.saved
+    assert len(result.alerts) == 1
+    assert len(wl.list_alerts()) == 1
+
+
+def test_missing_vehicle_enrichment_config_is_disabled():
+    assert _build_vehicle_enricher({}) is None
+
+
+def test_explicitly_disabled_config_does_not_construct_detector(monkeypatch):
+    import phase2_city.vehicle_detection as vehicle_detection
+
+    def unexpected_construction(*args, **kwargs):
+        raise AssertionError("vehicle detector must not be constructed")
+
+    monkeypatch.setattr(
+        vehicle_detection,
+        "UltralyticsVehicleDetector",
+        unexpected_construction,
+    )
+
+    assert _build_vehicle_enricher({
+        "vehicle_enrichment": {"enabled": False},
+    }) is None
+
+
+def test_enabled_config_constructs_existing_lazy_detector_without_loading():
+    enricher = _build_vehicle_enricher({
+        "vehicle_enrichment": {
+            "enabled": True,
+            "weights_path": "weights/local-coco.pt",
+            "device": "cpu",
+        },
+    })
+
+    assert isinstance(enricher, TrackVehicleEnricher)
+    assert str(enricher.vehicle_detector.weights_path) == \
+        "weights\\local-coco.pt"
+    assert enricher.vehicle_detector.device == "cpu"
+    assert enricher.vehicle_detector._model is None

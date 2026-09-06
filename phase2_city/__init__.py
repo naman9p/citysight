@@ -63,6 +63,7 @@ from phase2_city.vehicle_attributes import (
     extract_vehicle_attributes,
     fingerprint_from_observation_and_attributes,
 )
+from phase2_city.vehicle_enrichment import TrackVehicleEnricher
 
 __all__ = [
     "Camera",
@@ -112,4 +113,5 @@ __all__ = [
     "vehicle_attributes_from_association",
     "extract_vehicle_attributes",
     "fingerprint_from_observation_and_attributes",
+    "TrackVehicleEnricher",
 ]

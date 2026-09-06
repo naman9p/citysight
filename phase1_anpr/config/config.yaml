@@ -49,6 +49,14 @@ detection:
   plate_class_id: 0
   image_size: 640
 
+# Optional Step 26 whole-vehicle enrichment. Omission or enabled: false keeps
+# the existing plate-only ANPR path unchanged. Weights must exist locally;
+# automatic model downloads are never attempted.
+vehicle_enrichment:
+  enabled: false
+  weights_path: "weights/yolov8n.pt"
+  device: "cpu"
+
 tracking:
   # ByteTrack parameters.
   tracker: "bytetrack"
