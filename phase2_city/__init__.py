@@ -64,6 +64,13 @@ from phase2_city.vehicle_attributes import (
     fingerprint_from_observation_and_attributes,
 )
 from phase2_city.vehicle_enrichment import TrackVehicleEnricher
+from phase2_city.cross_camera_matching import (
+    CrossCameraMatchValidationError,
+    FingerprintObservation,
+    CrossCameraMatchPolicy,
+    CrossCameraCandidateResult,
+    CrossCameraCandidateMatcher,
+)
 
 __all__ = [
     "Camera",
@@ -114,4 +121,9 @@ __all__ = [
     "extract_vehicle_attributes",
     "fingerprint_from_observation_and_attributes",
     "TrackVehicleEnricher",
+    "CrossCameraMatchValidationError",
+    "FingerprintObservation",
+    "CrossCameraMatchPolicy",
+    "CrossCameraCandidateResult",
+    "CrossCameraCandidateMatcher",
 ]
