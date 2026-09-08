@@ -71,6 +71,12 @@ from phase2_city.cross_camera_matching import (
     CrossCameraCandidateResult,
     CrossCameraCandidateMatcher,
 )
+from phase2_city.candidate_collection import (
+    CandidateCollectionError,
+    CandidateCollectionPolicy,
+    CandidateCollectionResult,
+    ReplayCandidateCollector,
+)
 
 __all__ = [
     "Camera",
@@ -126,4 +132,8 @@ __all__ = [
     "CrossCameraMatchPolicy",
     "CrossCameraCandidateResult",
     "CrossCameraCandidateMatcher",
+    "CandidateCollectionError",
+    "CandidateCollectionPolicy",
+    "CandidateCollectionResult",
+    "ReplayCandidateCollector",
 ]
