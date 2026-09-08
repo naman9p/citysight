@@ -77,6 +77,14 @@ from phase2_city.candidate_collection import (
     CandidateCollectionResult,
     ReplayCandidateCollector,
 )
+from phase2_city.candidate_evaluation import (
+    CandidateEvaluationError,
+    CandidateGroundTruthCase,
+    CandidateEvaluationPolicy,
+    CandidateEvaluationCaseResult,
+    CandidateEvaluationSummary,
+    ReplayCandidateEvaluator,
+)
 
 __all__ = [
     "Camera",
@@ -136,4 +144,10 @@ __all__ = [
     "CandidateCollectionPolicy",
     "CandidateCollectionResult",
     "ReplayCandidateCollector",
+    "CandidateEvaluationError",
+    "CandidateGroundTruthCase",
+    "CandidateEvaluationPolicy",
+    "CandidateEvaluationCaseResult",
+    "CandidateEvaluationSummary",
+    "ReplayCandidateEvaluator",
 ]
