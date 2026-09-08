@@ -28,6 +28,17 @@ from phase1_anpr.persistence import (
     LocalFilesystemEvidenceStore,
 )
 from phase2_city.config.loader import DEFAULT_CITY_CONFIG_PATH, load_city_config
+from phase2_city.candidate_collection import (
+    CandidateCollectionError,
+    CandidateCollectionPolicy,
+    ReplayCandidateCollector,
+)
+from phase2_city.candidate_report import format_candidate_report
+from phase2_city.cross_camera_matching import (
+    CrossCameraCandidateMatcher,
+    CrossCameraMatchPolicy,
+    CrossCameraMatchValidationError,
+)
 from phase2_city.graph import CityCameraGraph
 from phase2_city.scenario import ScenarioError, ScenarioResult, load_scenario
 
@@ -66,6 +77,51 @@ def _build_stores(config):
     return obs_repo, wl_repo, evidence
 
 
+def _candidate_report_policies(parser, args):
+    """Validate opt-in candidate arguments through Step 27/28 policies."""
+    values = {
+        "--candidate-source-event-id": args.candidate_source_event_id,
+        "--candidate-window-seconds": args.candidate_window_seconds,
+        "--candidate-max-results": args.candidate_max_results,
+        "--candidate-maximum-speed-kph":
+            args.candidate_maximum_speed_kph,
+    }
+    requested = args.include_candidate_diagnostics or any(
+        value is not None for value in values.values())
+    if not requested:
+        return None
+
+    missing = [name for name, value in values.items() if value is None]
+    if missing:
+        parser.error(
+            "candidate reporting requires: " + ", ".join(missing))
+
+    try:
+        collection_policy = CandidateCollectionPolicy(
+            max_time_delta_seconds=args.candidate_window_seconds,
+            max_candidates=args.candidate_max_results,
+        )
+        match_policy = CrossCameraMatchPolicy(
+            maximum_speed_kph=args.candidate_maximum_speed_kph)
+    except (CandidateCollectionError,
+            CrossCameraMatchValidationError) as exc:
+        parser.error(str(exc))
+    return collection_policy, match_policy
+
+
+def _collect_candidate_report(
+        scenario_result,
+        city_graph,
+        source_event_id,
+        collection_policy,
+        match_policy,
+):
+    """Compose Step 27 and Step 28 without adding report-layer semantics."""
+    matcher = CrossCameraCandidateMatcher(city_graph, match_policy)
+    collector = ReplayCandidateCollector(matcher, collection_policy)
+    return collector.collect(scenario_result, source_event_id)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="CitySight Phase 2 multi-camera recorded-video replay")
@@ -75,7 +131,23 @@ def main(argv=None):
                         help="Step 17 city topology config")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH),
                         help="Phase 1 pipeline config (persistence/thresholds)")
+    parser.add_argument(
+        "--candidate-source-event-id",
+        help="Generate a candidate-hypothesis report for this replay event")
+    parser.add_argument(
+        "--candidate-window-seconds", type=float,
+        help="Inclusive forward search window for candidate reporting")
+    parser.add_argument(
+        "--candidate-max-results", type=int,
+        help="Maximum Step 27 evaluations for candidate reporting")
+    parser.add_argument(
+        "--candidate-maximum-speed-kph", type=float,
+        help="Step 27 physical-feasibility speed ceiling")
+    parser.add_argument(
+        "--include-candidate-diagnostics", action="store_true",
+        help="Show all bounded evaluations, including rejected decisions")
     args = parser.parse_args(argv)
+    candidate_policies = _candidate_report_policies(parser, args)
 
     config = load_config(args.config)
 
@@ -108,6 +180,22 @@ def main(argv=None):
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    candidate_result = None
+    if candidate_policies is not None:
+        collection_policy, match_policy = candidate_policies
+        try:
+            candidate_result = _collect_candidate_report(
+                result,
+                graph,
+                args.candidate_source_event_id,
+                collection_policy,
+                match_policy,
+            )
+        except (CandidateCollectionError,
+                CrossCameraMatchValidationError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+
     print(f"scenario_id   : {result.scenario_id}")
     for sr in result.source_results:
         counts = sr.counts
@@ -123,6 +211,12 @@ def main(argv=None):
     print(f"  review      : {totals['review']}")
     print(f"  abstained   : {totals['abstained']}")
     print(f"alerts        : {totals['alerts']}")
+    if candidate_result is not None:
+        print()
+        print(format_candidate_report(
+            candidate_result,
+            include_diagnostics=args.include_candidate_diagnostics,
+        ))
     return 0
 
 
