@@ -85,6 +85,11 @@ from phase2_city.candidate_evaluation import (
     CandidateEvaluationSummary,
     ReplayCandidateEvaluator,
 )
+from phase2_city.candidate_ground_truth import (
+    CandidateGroundTruthLoadError,
+    CandidateGroundTruthDataset,
+    load_candidate_ground_truth,
+)
 
 __all__ = [
     "Camera",
@@ -150,4 +155,7 @@ __all__ = [
     "CandidateEvaluationCaseResult",
     "CandidateEvaluationSummary",
     "ReplayCandidateEvaluator",
+    "CandidateGroundTruthLoadError",
+    "CandidateGroundTruthDataset",
+    "load_candidate_ground_truth",
 ]

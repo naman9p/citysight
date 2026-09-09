@@ -1,0 +1,12 @@
+# CitySight Step 31 candidate-evaluation ground-truth example.
+#
+# Replace the placeholder event IDs below with event UUIDs produced by the
+# matching replay scenario. These relationships must come from external human
+# or dataset labels; never derive them from matching plates or fingerprints.
+
+scenario_id: demo-city-01
+
+cases:
+  - source_event_id: "SOURCE_EVENT_UUID_FROM_REPLAY"
+    relevant_event_ids:
+      - "LATER_RELEVANT_EVENT_UUID_FROM_REPLAY"
