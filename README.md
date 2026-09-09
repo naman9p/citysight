@@ -1,4 +1,4 @@
-# CitySight — Phase 1: ANPR Engine (SIH26127)
+# CitySight — ANPR and Cross-Camera Candidate Intelligence (SIH26127)
 
 CitySight is a smart-city license-plate intelligence system. **Phase 1** is a
 complete, self-contained Automatic Number Plate Recognition (ANPR) engine: it
@@ -8,7 +8,12 @@ and persists canonical observations to SQLite. A read-only HTTP API and a
 lightweight operator dashboard expose the data, and a plate watchlist raises
 deduplicated alerts on accepted sightings.
 
-> Scope: **only Phase 1** is implemented. Phase 2 is future work (see below).
+**Phase 2 is implemented through the reproducible cross-camera candidate
+evaluation workflow (Steps 17–31).** It adds city camera topology,
+multi-camera recorded-video replay, exact-plate trajectories, optional
+whole-vehicle enrichment, explainable bounded candidate hypotheses, and
+external-ground-truth retrieval evaluation. Candidate hypotheses are not
+confirmed vehicle identities.
 
 ## Architecture
 
@@ -16,6 +21,10 @@ Phase 1 is modular and dependency-injected end to end — every stage is a small
 component with a clear interface, wired together by a single orchestrator
 (`phase1_anpr/pipeline/anpr_pipeline.py`). This keeps the heavy models
 (YOLO/PaddleOCR) swappable and lets the full pipeline run under test with fakes.
+
+Phase 2 consumes completed replay observations in memory. Pairwise matching,
+bounded collection, reporting, and evaluation remain separate layers; exact
+plate trajectories are not modified by candidate hypotheses.
 
 ## Pipeline
 
@@ -34,6 +43,9 @@ Video
  → HTTP API
  → dashboard
  → watchlist alert
+ → multi-camera replay + optional vehicle fingerprint enrichment
+ → explainable bounded cross-camera candidate hypotheses
+ → explicit-ground-truth Recall@K / HitRate@K / MRR evaluation
 ```
 
 ## Implemented features
@@ -62,6 +74,16 @@ Video
   recent-alerts panel.
 - **End-to-end orchestrator + CLI demo** and a **server entry point**, both
   reading/writing the same SQLite database.
+- **Directed city camera topology** and deterministic recorded multi-camera
+  replay with timezone-aware source start times.
+- **Exact-plate trajectory reconstruction** kept independent from fingerprint
+  candidate hypotheses.
+- **Optional whole-vehicle enrichment** with colour/class evidence and no
+  automatic model download.
+- **Bounded deterministic cross-camera candidate collection** with explainable
+  fingerprint, topology, and travel evidence.
+- **Read-only candidate reporting** plus YAML-backed evaluation using candidate
+  Recall@K, HitRate@K, MRR, and truncation diagnostics.
 
 ## Setup
 
@@ -114,6 +136,19 @@ Processes a recorded video and persists observations/alerts to SQLite:
 .\.venv\Scripts\python.exe -m phase1_anpr.demo --video inputs/videos/sample.mp4 --camera-id cam_01
 ```
 
+### Phase 2 multi-camera replay
+
+The example references local videos that are not committed. Supply the clips or
+update their paths before running it:
+
+```bash
+.\.venv\Scripts\python.exe -m phase2_city.replay --scenario phase2_city/config/replay.example.yaml --city-config phase2_city/config/city.yaml --config phase1_anpr/config/config.yaml
+```
+
+Candidate reporting and externally labeled evaluation are documented in the
+[Phase 2 demo and evaluation runbook](docs/phase2-demo-evaluation.md), including
+all required policy arguments and the ground-truth protocol.
+
 ### Dashboard server
 
 Serves the API + dashboard against the same SQLite database the demo writes to:
@@ -129,7 +164,8 @@ Dashboard URL: **http://127.0.0.1:8000/dashboard** (Ctrl+C to stop).
 `GET /health`, `GET /observations`, `GET /observations/{event_id}`,
 `GET /plates/{plate}/observations`, `GET /cameras/{camera_id}/observations`,
 `GET /watchlist`, `POST /watchlist`, `DELETE /watchlist/{watchlist_id}`,
-`GET /alerts`.
+`GET /alerts`, `POST /v1/trajectories`, `GET /v1/cameras`,
+`GET /v1/cameras/{id}`, `GET /v1/cameras/{id}/links`, and `GET /v1/links`.
 
 ## Project structure
 
@@ -153,6 +189,9 @@ phase1_anpr/
   utils/           config loader, shared helpers
   demo.py          end-to-end video demo runner
   serve.py         API + dashboard server entry point
+phase2_city/        city topology, replay, trajectories, vehicle enrichment,
+                    candidate matching/collection/reporting/evaluation
+docs/               Phase 2 demo and evaluation runbook
 contracts/events/  plate-observation JSON Schema
 inputs/videos/     input videos (not committed)
 outputs/plates/    preserved plate crops + evidence
@@ -173,13 +212,20 @@ own locally as described above.
 - Confidence is a **heuristic**, not a calibrated probability; no accuracy
   metrics are claimed without a formal evaluation dataset.
 - Normalization targets **Indian** plate formats.
-- Single-camera, **recorded-video** processing (no live multi-camera streaming).
+- Processing is **recorded-video** based; there is no live multi-camera
+  streaming ingestion.
 - Persistence uses **SQLite** and a **local filesystem** evidence store
   (interfaces are swappable for Postgres/MinIO/S3 later, not implemented).
 - The API/dashboard are an unauthenticated **SIH demo** surface (no auth/RBAC).
+- Cross-camera matches are bounded candidate hypotheses, not global vehicle
+  identities or inferred route proof.
+- Candidate fingerprints/results remain transient in the completed replay
+  result; no candidate persistence schema is implemented.
+- Candidate-retrieval metrics require genuine external labels and do not
+  represent universal ANPR/OCR accuracy.
 
-## Future work (Phase 2 — not implemented)
+## Beyond the current prototype
 
-Multi-camera trajectory correlation, traffic analytics, streaming ingestion,
-notifications, authentication/RBAC, and a production datastore are **Phase 2**
-and out of scope for this repository's current state.
+Live streaming ingestion, global identity resolution, learned vehicle ReID,
+traffic analytics, notifications, authentication/RBAC, and a production
+datastore remain out of scope.

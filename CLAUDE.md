@@ -7,7 +7,12 @@ quality → rectification → OCR → fusion → normalization → confidence �
 canonical observation → SQLite persistence → HTTP API → dashboard → watchlist
 alerts.
 
-Do not implement Phase 2 or later features unless explicitly asked.
+Phase 2 is implemented through Step 32: city camera topology, deterministic
+recorded multi-camera replay, exact-plate trajectories, optional whole-vehicle
+enrichment, explainable bounded cross-camera candidate hypotheses, explicit
+ground-truth candidate evaluation, and the demo/evaluation runbook.
+
+Do not implement later roadmap features unless explicitly asked.
 
 ## Phase 1 Pipeline (as built)
 
@@ -24,6 +29,19 @@ Video
 → SQLite Persistence (+ filesystem evidence store)
 → Stdlib HTTP API + Dashboard
 → Watchlist Deduplicated Alerts
+
+## Phase 2 Flow (as built)
+
+Recorded Multi-Camera Scenario
+→ Canonical Observations + Optional Transient Vehicle Fingerprints
+→ Explainable Pairwise Cross-Camera Matching
+→ Bounded Deterministic Candidate Collection
+→ Read-Only Candidate Report
+→ Explicit External Ground Truth
+→ Candidate Recall@K + HitRate@K + MRR
+
+Candidate hypotheses are not confirmed vehicle identities. Exact-plate
+trajectories remain independent from fingerprint candidate hypotheses.
 
 ## Tech Stack
 
@@ -56,6 +74,8 @@ Video
 * Support CPU and CUDA where possible.
 * Do not fake model results.
 * Do not claim accuracy without evaluation.
+* Evaluation labels must come from external ground truth, never from matching
+  plates, fingerprints, similarity, candidate decisions, or ranking output.
 * Do not download model weights automatically; fail clearly if weights missing.
 * Preserve original plate crops.
 * Run relevant tests after implementation.
@@ -66,8 +86,8 @@ Video
 
 Canonical ANPR observations follow
 `contracts/events/plate-observation.schema.json` and are validated against it.
-They are persisted to SQLite (and served via the API) and will later be
-consumed by Phase 2.
+They are persisted to SQLite (and served via the API) and are also consumed by
+the implemented Phase 2 replay, trajectory, and candidate workflows.
 
 Each observation contains:
 
