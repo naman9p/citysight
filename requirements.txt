@@ -10,6 +10,9 @@ jsonschema>=4.20
 # Vision / detection / tracking
 opencv-python>=4.9
 ultralytics>=8.1
+# Ultralytics imports this optional package for BYTETrack.  Declare it
+# explicitly so a fresh/offline-safe install does not attempt runtime install.
+lap>=0.5.12
 
 # OCR (PaddleOCR baseline) — pinned to known-working versions
 paddleocr==3.7.0

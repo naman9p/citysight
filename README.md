@@ -128,6 +128,18 @@ All commands below use the venv Python. On Windows:
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
+### Phase 1 accuracy evaluation
+
+CitySight includes a label-driven evaluator for dataset integrity, detector
+threshold/image-size sweeps, OCR preprocessing ablations, and track-level fusion
+comparisons. It requires independent ground truth and never downloads model
+weights automatically. See [the Phase 1 evaluation protocol](docs/anpr-evaluation.md)
+and [experiment ledger](docs/anpr-experiments.md).
+
+```powershell
+.\.venv\Scripts\python.exe -m phase1_anpr.evaluation --help
+```
+
 ### Video demo (end-to-end pipeline)
 
 Processes a recorded video and persists observations/alerts to SQLite:

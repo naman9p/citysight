@@ -1,0 +1,28 @@
+# Paths are resolved relative to this manifest. Raw datasets stay outside Git.
+name: citysight-anpr-evaluation
+version: replace-with-dataset-version-or-hash
+
+detection:
+  images:
+    - id: sequence_a_frame_000001
+      path: C:/absolute/path/to/frame_000001.jpg
+      sequence_id: sequence_a
+      split: test
+      boxes:
+        - bbox: [100, 200, 260, 250]
+          # Link repeated boxes and OCR crops for end-to-end track metrics.
+          plate_id: sequence_a_track_7
+          # Optional manually adjudicated failure tags take precedence over
+          # heuristic failure categories in the generated report.
+          tags: [motion_blur]
+
+ocr:
+  crops:
+    - id: sequence_a_track_7_frame_000001
+      path: C:/absolute/path/to/plate_crop.jpg
+      text: MH12AB1234
+      track_id: sequence_a_track_7
+      frame_number: 1
+      quality_score: 0.82
+      detector_confidence: 0.91
+      tags: []

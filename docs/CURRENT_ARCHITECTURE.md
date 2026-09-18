@@ -1202,6 +1202,31 @@ Test principles:
 - external dataset availability must not be required for the ordinary full suite;
 - regression protection is mandatory.
 
+### Phase 1 accuracy evaluation
+
+The optional `phase1_anpr.evaluation` package provides a strict external-label
+boundary for ANPR experiments:
+
+```text
+versioned external manifest
+        ↓
+integrity / duplicate / sequence-leakage audit
+        ↓
+detector operating-point sweep + false-negative analysis
+        +
+OCR preprocessing ablation + track-fusion comparison
+        ↓
+linked end-to-end recognition when plate_id/track_id ground truth exists
+        ↓
+stage-separated JSON + Markdown metrics with model/manifest hashes
+```
+
+Detector metrics remain separate from crop OCR, fused track recognition, and
+accepted-set accuracy/coverage. The evaluator writes generated artifacts only
+under ignored output paths by default and never changes production config.
+PaddleOCR evaluation requires an explicit existing local model directory; model
+weights are not downloaded automatically.
+
 ---
 
 ## 32. Git architecture/workflow rules
@@ -1264,6 +1289,7 @@ Current prototype principles:
 | API | Python stdlib `http.server` |
 | Dashboard | HTML / CSS / JavaScript |
 | Testing | pytest |
+| Tracking assignment dependency | lap (explicit Ultralytics BYTETrack dependency) |
 | CLI | Python modules / argparse-style command interfaces |
 | Configuration | Repository YAML/config loaders |
 | Development OS | Windows / PowerShell |
@@ -1512,6 +1538,7 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 30–31 | Added independent-ground-truth candidate evaluation and reproducible runner | Implemented |
 | 2026-09 | 32 | Added Phase 2 demo/evaluation runbook | Implemented |
 | 2026-09 | 33 | Validated RoundaboutHD timing/identity semantics, then rejected it as the primary end-to-end dataset after an unchanged 600-frame CitySight preflight produced zero plate detections, tracks and observations; replacement dataset required | In progress |
+| 2026-09 | Phase 1 accuracy audit | Added external-label manifests, dataset leakage/integrity audit, detector configuration sweeps, OCR preprocessing and track-fusion ablations, linked end-to-end recognition, stage-correct metrics, and experiment provenance without changing production inference | Implemented; labeled dataset required for measurements |
 
 ---
 
