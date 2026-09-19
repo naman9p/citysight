@@ -1,0 +1,12 @@
+scenario_id: step33-real-multicamera-01
+
+sources:
+  - source_id: step33_cam01
+    camera_id: CAM_01
+    video_path: ../../inputs/videos/step33/CAM01.mp4
+    start_time: "2026-09-19T12:40:12Z"
+
+  - source_id: step33_cam02
+    camera_id: CAM_02
+    video_path: ../../inputs/videos/step33/CAM02.mp4
+    start_time: "2026-09-19T12:40:08Z"

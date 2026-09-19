@@ -1559,3 +1559,33 @@ If this document ever conflicts with actual code:
 5. add an Architecture Change Log entry when the change is architectural.
 
 **Do not silently make the documentation fit an assumption.**
+
+## Step 33 — Real-World Two-Camera Validation
+
+CitySight has been validated on two self-recorded 1080p road videos using
+CAM_01 -> CAM_02 replay.
+
+Current validated runtime baseline:
+
+- Replay processing rate: 10 FPS
+- Detector image size: 640
+- Detector device: CUDA
+- OCR device: CPU
+- Directed camera link distance: approximately 50 m
+- Vehicle enrichment: disabled
+
+The baseline replay produced 38 observations:
+10 accepted, 18 review, and 10 abstained.
+
+A genuine cross-camera sighting of GJ04EJ5933 was associated from CAM_01
+to CAM_02 as `possible_strong`. The elapsed time was 9.726797 seconds over
+approximately 50 m, which is physically feasible under the configured
+60 km/h maximum-speed policy.
+
+A controlled detector image-size experiment at 960 produced more total
+observations (49) but fewer accepted observations (6), more abstentions
+(19), and no increase in normalized plate availability. Therefore
+image_size=640 remains the Step 33 baseline.
+
+Detailed experiment results are documented in:
+`docs/STEP33_REAL_WORLD_EVALUATION.md`.
