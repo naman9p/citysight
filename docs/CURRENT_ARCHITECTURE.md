@@ -1227,6 +1227,40 @@ under ignored output paths by default and never changes production config.
 PaddleOCR evaluation requires an explicit existing local model directory; model
 weights are not downloaded automatically.
 
+Step 34 adds a video-aware adapter in
+`phase1_anpr/evaluation/real_world.py` without replacing that framework. Its
+strict YAML ground truth represents reviewed source frames, full-resolution
+plate boxes, physical plate-passage instances, exact-text evaluability,
+optional manually known cross-camera identity, and manually adjudicated replay
+event links. Unreviewed frames are excluded rather than silently treated as
+negative frames.
+
+```text
+manual Step 34 video labels
+        +
+fixed Step 33 config/scenario/topology
+        ↓
+real-world-capture (unchanged detector + replay, isolated in-memory store)
+        ↓
+hashed prediction/provenance JSON
+        ↓
+real-world evaluator
+        ↓
+detection @ IoU 0.5 (+ 0.3 diagnostic)
+OCR exact match on detector-matched evaluable instances
+end-to-end exact recognition
+confidence precision / coverage / deferrals
+false-positive adjudication
+optional Recall@K / HitRate@K / MRR when labels are sufficient
+```
+
+The preparation, capture, and evaluator CLIs are persistent evaluation
+interfaces. Preparation extracts exactly the configured replay frames but marks
+all of them unreviewed; it does not invent negative labels. These interfaces do
+not sweep or tune production settings. Cross-camera percentages require at
+least two manually labeled source cases by default, so the single confirmed
+Step 33 match cannot be presented as an aggregate accuracy result.
+
 ---
 
 ## 32. Git architecture/workflow rules
@@ -1385,49 +1419,50 @@ known graph link ≠ proof the vehicle used that road
 | Phase 2 | 30 | Candidate retrieval evaluation | Complete |
 | Phase 2 | 31 | Ground-truth loader + evaluation runner | Complete |
 | Phase 2 | 32 | Demo/evaluation runbook | Complete |
-| Phase 2 | 33 | First externally annotated cross-camera baseline | **In progress / replacement dataset required** |
-| Phase 3 | — | To be decided after Step 33 | Not started |
+| Phase 2 | 33 | Real-world two-camera replay validation | Complete |
+| Evaluation | 34A | Real-world annotation format + fixed-baseline evaluator | Complete |
+| Evaluation | 34B | Manually labeled Step 33 accuracy results | **Pending manual labels** |
+| Phase 3 | — | To be decided after Step 34 measurement | Not started |
 
-Last known verified pre-Step-33 checkpoint:
+Last known verified pre-Step-34 checkpoint:
 
 ```text
 branch: main
-commit: 378e6f950b111ff3a861ad634e7af5aee3db723d
+commit: c80da80 (Step 33 documentation commit; abbreviated)
 working tree: clean
 main == origin/main
-full suite: 792 passed
+full suite: 806 passed
 ```
 
 Always verify this against Git before the next implementation step.
 
 ---
 
-## 38. Current Step 33 architecture objective
+## 38. Current Step 34 architecture objective
 
-The immediate system objective is **evaluation**, not adding more intelligence.
+The immediate system objective is **manual ground-truth measurement**, not
+adding more intelligence.
 
 Required sequence:
 
 ```text
-replacement dataset selection and provenance
+review every Step 33 frame selected at 10 FPS
         ↓
-verify camera / frame / identity semantics
+label all visible plate boxes and exact-text evaluability
         ↓
-bounded CitySight ANPR compatibility preflight
+assign stable physical plate-passage identities
         ↓
-derive only justified relative timing
+capture the unchanged Step 33 baseline with provenance
         ↓
-map external labels to generic CitySight ground truth
+manually link/adjudicate replay observations
         ↓
-reuse existing replay/candidate/evaluation pipeline
+calculate stage-separated detector / OCR / end-to-end metrics
         ↓
-run first external baseline
+analyze confidence coverage and false positives
         ↓
-Recall@K / HitRate@K / MRR / truncation
+evaluate cross-camera retrieval only if identity labels are sufficient
         ↓
 document reproducible protocol and results
-        ↓
-Phase 2 completion review
 ```
 
 Do not add ReID embeddings before measuring the deterministic baseline.
@@ -1560,7 +1595,7 @@ If this document ever conflicts with actual code:
 
 **Do not silently make the documentation fit an assumption.**
 
-## Step 33 � Real-World Two-Camera Validation
+## Step 33 — Real-World Two-Camera Validation
 
 CitySight has been validated on two self-recorded 1080p road videos using
 CAM_01 -> CAM_02 replay.
@@ -1589,3 +1624,14 @@ image_size=640 remains the Step 33 baseline.
 
 Detailed experiment results are documented in:
 `docs/STEP33_REAL_WORLD_EVALUATION.md`.
+
+## Step 34 — Real-World Ground-Truth Benchmark
+
+Step 34 Part A adds the strict, label-driven workflow documented in
+`docs/STEP34_REAL_WORLD_GROUND_TRUTH_BENCHMARK.md` and the fillable
+`phase1_anpr/evaluation/step34_ground_truth.template.yaml`.
+
+Part B remains pending because the two videos have not yet been exhaustively
+and independently labeled. The architecture must not claim detector, OCR,
+end-to-end, confidence, or cross-camera percentages until those manual labels
+exist and the evaluator has calculated the stated numerators and denominators.

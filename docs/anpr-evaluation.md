@@ -135,3 +135,10 @@ operating point, preserves strong precision and coverage, has acceptable
 runtime, and passes the full regression suite. Detector precision is never
 reported as ANPR accuracy; crop OCR, fused track accuracy, and end-to-end
 recognition remain distinct metrics.
+
+## Step 34 real-video benchmark
+
+The fixed-baseline, video-aware annotation/capture/evaluation workflow for the
+two Step 33 videos is documented in
+`docs/STEP34_REAL_WORLD_GROUND_TRUTH_BENCHMARK.md`. It reuses this package's
+metrics but does not run a configuration sweep or select a new operating point.

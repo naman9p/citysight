@@ -1,0 +1,51 @@
+# Step 34 manual labels. Copy this file to a working location before editing.
+# Predictions must never be used to decide a box, transcription, or identity.
+schema_version: 1
+benchmark_id: step34-step33-real-videos-v1
+
+# Add only explicitly known forward cross-camera relationships. Keep empty
+# until at least the source and relevant replay event IDs are manually linked.
+cross_camera_cases: []
+# - source_event_id: source-event-uuid
+#   relevant_event_ids: [later-same-vehicle-event-uuid]
+
+sources:
+  - source_id: step33_cam01
+    camera_id: CAM_01
+    video_path: ../../inputs/videos/step33/CAM01.mp4
+
+    # Set true only after every captured replay observation for this source has
+    # been assigned to a plate instance or listed as a confirmed non-plate.
+    observations_reviewed: false
+    non_plate_observation_event_ids: []
+
+    # One entry per physical plate passage/track, not one entry per frame.
+    plate_instances: []
+    # Example shape (remove the leading comments; values are placeholders):
+    # - instance_id: cam01_plate_001
+    #   plate_text: GJ00AA0000
+    #   text_evaluable: true
+    #   vehicle_identity: null
+    #   observation_event_id: null
+    #   observation_link_reviewed: false
+    #   notes: null
+
+    # Set reviewed: true only after inspecting the full frame. Use plates: []
+    # when no plate is visible; omitting negative frames biases detector
+    # precision. Frame numbers are zero-based source-video indices.
+    frames: []
+    # - frame_number: 0
+    #   timestamp_seconds: 0.0
+    #   reviewed: true
+    #   plates:
+    #     - instance_id: cam01_plate_001
+    #       bbox: [100, 200, 260, 250]
+    #       notes: null
+
+  - source_id: step33_cam02
+    camera_id: CAM_02
+    video_path: ../../inputs/videos/step33/CAM02.mp4
+    observations_reviewed: false
+    non_plate_observation_event_ids: []
+    plate_instances: []
+    frames: []

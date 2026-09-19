@@ -829,6 +829,95 @@ def build_parser() -> argparse.ArgumentParser:
     end_to_end.add_argument("--ocr-report", required=True)
     end_to_end.add_argument("--output-dir", default="outputs/annotated/evaluation")
     end_to_end.set_defaults(handler=run_end_to_end)
+
+    real_world = subparsers.add_parser(
+        "real-world",
+        help="evaluate fixed real-video predictions against manual Step 34 labels",
+    )
+    real_world.add_argument("--ground-truth", required=True)
+    real_world.add_argument("--predictions", required=True)
+    real_world.add_argument("--primary-iou", type=float, default=0.5)
+    real_world.add_argument("--diagnostic-iou", type=float, default=0.3)
+    real_world.add_argument(
+        "--cross-camera-k", type=lambda value: _parse_numbers(value, int),
+        default=(1, 3, 5),
+    )
+    real_world.add_argument("--minimum-cross-camera-cases", type=int, default=2)
+    real_world.add_argument(
+        "--output-dir", default="outputs/annotated/step34_evaluation")
+
+    def _run_real_world(args):
+        from phase1_anpr.evaluation.real_world import run_real_world_evaluation
+
+        return run_real_world_evaluation(
+            args.ground_truth,
+            args.predictions,
+            args.output_dir,
+            primary_iou=args.primary_iou,
+            diagnostic_iou=args.diagnostic_iou,
+            cross_camera_k=tuple(args.cross_camera_k),
+            minimum_cross_camera_cases=args.minimum_cross_camera_cases,
+        )
+
+    real_world.set_defaults(handler=_run_real_world)
+
+    capture = subparsers.add_parser(
+        "real-world-capture",
+        help="capture fixed Step 34 detector/replay predictions on reviewed frames",
+    )
+    capture.add_argument("--ground-truth", required=True)
+    capture.add_argument("--scenario", required=True)
+    capture.add_argument("--city-config", required=True)
+    capture.add_argument("--config", required=True)
+    capture.add_argument(
+        "--output", default="outputs/annotated/step34_predictions.json")
+    capture.add_argument("--candidate-window-seconds", type=float)
+    capture.add_argument("--candidate-max-results", type=int)
+    capture.add_argument("--candidate-maximum-speed-kph", type=float)
+
+    def _capture_real_world(args):
+        from phase1_anpr.evaluation.real_world import capture_real_world_predictions
+
+        return capture_real_world_predictions(
+            args.ground_truth,
+            args.scenario,
+            args.city_config,
+            args.config,
+            args.output,
+            candidate_window_seconds=args.candidate_window_seconds,
+            candidate_max_results=args.candidate_max_results,
+            candidate_maximum_speed_kph=args.candidate_maximum_speed_kph,
+        )
+
+    capture.set_defaults(handler=_capture_real_world)
+
+    prepare = subparsers.add_parser(
+        "real-world-prepare",
+        help="extract processed Step 34 frames and create an unreviewed label file",
+    )
+    prepare.add_argument("--scenario", required=True)
+    prepare.add_argument("--city-config", required=True)
+    prepare.add_argument("--config", required=True)
+    prepare.add_argument("--output", required=True)
+    prepare.add_argument("--frames-dir")
+    prepare.add_argument(
+        "--benchmark-id", default="step34-step33-real-videos-v1")
+
+    def _prepare_real_world(args):
+        from phase1_anpr.evaluation.real_world import (
+            prepare_real_world_annotation_workspace,
+        )
+
+        return prepare_real_world_annotation_workspace(
+            args.scenario,
+            args.city_config,
+            args.config,
+            args.output,
+            benchmark_id=args.benchmark_id,
+            frames_dir=args.frames_dir,
+        )
+
+    prepare.set_defaults(handler=_prepare_real_world)
     return parser
 
 
