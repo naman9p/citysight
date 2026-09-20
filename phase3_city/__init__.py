@@ -75,9 +75,24 @@ _QUERY_HISTORY_EXPORTS = frozenset({
     "build_candidate_query_history",
 })
 
+_TRAJECTORY_HYPOTHESIS_EXPORTS = frozenset({
+    "TRAJECTORY_HYPOTHESIS_IMPLEMENTATION_ID",
+    "TRAJECTORY_HYPOTHESIS_POLICY_VERSION",
+    "TRAJECTORY_HYPOTHESIS_SCHEMA_VERSION",
+    "TrajectoryHistoryReference",
+    "TrajectoryHypothesis",
+    "TrajectoryHypothesisBuilder",
+    "TrajectoryHypothesisDataError",
+    "TrajectoryHypothesisEdge",
+    "TrajectoryHypothesisError",
+    "TrajectoryHypothesisEvent",
+    "TrajectoryHypothesisPolicy",
+    "TrajectoryHypothesisResult",
+})
+
 
 def __getattr__(name):
-    """Lazy-load Phase 2-backed Step 37–40 modules on demand."""
+    """Lazy-load Phase 2-backed Step 37–41 modules on demand."""
     if name in _HYBRID_EXPORTS:
         from phase3_city import hybrid_matching as module
     elif name in _PERSISTENCE_EXPORTS:
@@ -86,6 +101,8 @@ def __getattr__(name):
         from phase3_city import historical_candidate_retrieval as module
     elif name in _QUERY_HISTORY_EXPORTS:
         from phase3_city import query_history as module
+    elif name in _TRAJECTORY_HYPOTHESIS_EXPORTS:
+        from phase3_city import trajectory_hypotheses as module
     else:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     value = getattr(module, name)
@@ -135,6 +152,18 @@ __all__ = [
     "SQLiteCandidateQueryHistoryRepository",
     "TrustedPlateEvidence",
     "TrustedPlateRelation",
+    "TRAJECTORY_HYPOTHESIS_IMPLEMENTATION_ID",
+    "TRAJECTORY_HYPOTHESIS_POLICY_VERSION",
+    "TRAJECTORY_HYPOTHESIS_SCHEMA_VERSION",
+    "TrajectoryHistoryReference",
+    "TrajectoryHypothesis",
+    "TrajectoryHypothesisBuilder",
+    "TrajectoryHypothesisDataError",
+    "TrajectoryHypothesisEdge",
+    "TrajectoryHypothesisError",
+    "TrajectoryHypothesisEvent",
+    "TrajectoryHypothesisPolicy",
+    "TrajectoryHypothesisResult",
     "VEHICLE_EVIDENCE_SCHEMA_VERSION",
     "VehicleEvidenceConflictError",
     "VehicleEvidenceCorruptionError",

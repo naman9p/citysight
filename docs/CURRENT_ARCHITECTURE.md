@@ -60,6 +60,7 @@ It combines:
 - observation-scoped Phase 3 vehicle/appearance evidence persistence;
 - bounded persistence-backed historical candidate retrieval;
 - immutable Phase 3 query and supplied-order audit history;
+- bounded, in-memory inferred trajectory hypotheses;
 - physical travel-feasibility reasoning;
 - bounded cross-camera candidate retrieval;
 - candidate reporting;
@@ -130,6 +131,9 @@ flowchart TD
     AR --> AS[Chronological Hard-Capped Candidate Set]
     AS -. opt-in snapshot .-> AT[Phase 3 Query History Repository]
     AT --> AU[(SQLite candidate queries + ordered results)]
+    AU --> AV[Explicitly Selected Step 40 Records]
+    AV --> AW[Bounded Step 41 Hypothesis Builder]
+    AW --> AX[Branched Inferred TrajectoryHypotheses]
 ```
 
 ---
@@ -212,10 +216,13 @@ repository without automatically wiring it into replay or production. Step 39
 adds opt-in, persistence-backed forward candidate collection with structural
 and physical filtering before any appearance evaluation. Step 40 adds opt-in,
 immutable audit persistence for that supplied order and optional already-
-computed Step 37 evidence.
+computed Step 37 evidence. Step 41 consumes explicitly supplied Step 40 records
+read-only and constructs bounded, deterministic, in-memory inferred paths from
+eligible precomputed snapshots.
 
-No Phase 3 relevance-ranking algorithm, inferred trajectory or identity
-decision is part of this layer yet.
+No Phase 3 relevance-ranking algorithm or identity decision is part of this
+layer. A `TrajectoryHypothesis` is an auditable possibility, not an exact
+trajectory, a persistent vehicle identity, or a correctness claim.
 
 ---
 
@@ -1079,6 +1086,66 @@ final externally verified benchmark and ablation study.
 
 ---
 
+## 17G. Bounded inferred trajectory hypotheses
+
+Step 41 adds `phase3_city.trajectory_hypotheses` as an opt-in, read-only,
+in-memory hypothesis layer. The caller supplies the exact immutable
+`CandidateQueryHistoryRecord` values to consider; the builder does not search
+query history, select arbitrary records, invoke Step 39 retrieval, rerun Step
+37 matching, rerun Step 36 comparison, or load a ReID model. Query records and
+their stored positions and snapshots are never mutated.
+
+The type boundary is deliberate:
+
+```text
+phase2_city.trajectory.Trajectory != phase3_city.TrajectoryHypothesis
+```
+
+The Phase 2 type remains the exact accepted-plate reconstruction and its
+repository/API semantics are unchanged. A Phase 3 hypothesis instead contains
+an explicitly inferred event path, ordered camera/timestamp metadata,
+decomposed edge evidence, and references to the supporting Step 40 query IDs
+and retrieval positions. Its deterministic hash identifier names only that
+local event path; it is not a global or canonical vehicle identity.
+
+An event pair can become an edge only when at least one supplied Step 40 row
+contains a precomputed Step 37 snapshot with status
+`eligible_with_evidence`. `eligible_without_evidence`, an absent hybrid
+snapshot, or otherwise insufficient evidence does not create an edge. Missing
+appearance remains neutral. Missing forward topology remains `unknown` and is
+not automatically impossible, so an otherwise eligible snapshot may still
+form an edge.
+
+The Step 37 authority hierarchy remains mandatory. An edge is excluded if any
+snapshot supplied for that same event pair reports an ineligible or physically
+impossible result, an ineligible/impossible physical gate, or a trusted
+accepted-plate contradiction. Attribute or appearance agreement cannot rescue
+these hard vetoes. Every included edge must also move strictly forward in
+event time. Inconsistent event metadata, snapshot references or elapsed-time
+metadata fail explicitly rather than being reconciled heuristically.
+
+Repeated observations of the same source/candidate pair across selected query
+records are grouped into one edge. All query/history references are retained,
+and any hard contradiction in the group vetoes the edge. Eligible outgoing
+edges are ordered deterministically by candidate timestamp, candidate event
+ID, supporting query ID and stored retrieval position. Multiple continuations
+produce separate maximal hypotheses; no undocumented relevance score chooses
+one branch. Identical event paths are deduplicated.
+
+`TrajectoryHypothesisPolicy` requires positive `max_hops`, `max_hypotheses`
+and `max_branching_per_event` bounds. Expansion applies the deterministic
+per-event branch cap, stops at the hop cap, truncates output at the hypothesis
+cap, and rejects repeated event IDs within a path. Strictly increasing time is
+required independently of that cycle guard.
+
+Step 41 adds no SQLite table, filesystem write, query-history mutation,
+candidate ranking, aggregate confidence, identity probability, global vehicle
+entity, HTTP endpoint, dashboard or accuracy claim. Step 42 owns read-only
+Phase 3 API/dashboard surfaces. Step 43 owns the externally verified benchmark,
+frozen-baseline comparison and ablation study after Step 34B is complete.
+
+---
+
 ## 18. Pairwise cross-camera candidate matching
 
 The pairwise matcher evaluates one source observation against one possible later observation.
@@ -1868,7 +1935,7 @@ known graph link ≠ proof the vehicle used that road
 | Phase 3 | 38 | Persistent vehicle and appearance evidence storage | Complete |
 | Phase 3 | 39 | Bounded historical candidate retrieval | Complete |
 | Phase 3 | 40 | Query and ranking-history persistence | Complete |
-| Phase 3 | 41 | Inferred trajectory hypotheses | Planned |
+| Phase 3 | 41 | Inferred trajectory hypotheses | Complete |
 | Phase 3 | 42 | Read-only Phase 3 API/dashboard surfaces | Planned |
 | Phase 3 | 43 | Final benchmark, baseline comparison and ablation study | Blocked on Step 34B |
 
@@ -1962,7 +2029,7 @@ The current ordered roadmap is:
 | 38 | Persistent vehicle and appearance evidence storage | Implemented |
 | 39 | Bounded historical candidate retrieval | Implemented |
 | 40 | Query and ranking-history persistence | Implemented |
-| 41 | Inferred trajectory hypotheses | Planned |
+| 41 | Inferred trajectory hypotheses | Implemented |
 | 42 | Read-only Phase 3 API/dashboard surfaces | Planned |
 | 43 | Final benchmark, baseline comparison and ablation study | Blocked on Step 34B |
 
@@ -2080,13 +2147,14 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 32 | Added Phase 2 demo/evaluation runbook | Implemented |
 | 2026-09 | 33 | Rejected RoundaboutHD as an incompatible end-to-end ANPR benchmark, then completed the Phase 2 functional baseline with the frozen self-recorded two-camera replay validation | Implemented |
 | 2026-09 | 34 Part A/B helper | Added the strict real-video benchmark adapter, frame preparation, and a loopback-only prediction-blind manual annotation UI with revision-checked atomic YAML persistence; exhaustive human labeling remains pending | Implemented; labels pending |
-| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–40 implemented |
+| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–41 implemented |
 | 2026-09 | 35 | Added an isolated, disabled-by-default learned appearance-embedding boundary with deterministic preprocessing, immutable model/weights/preprocessing provenance, a model-neutral encoder port, and lazy local TorchScript loading; no comparison, matching, persistence, identity semantics or accuracy claim | Implemented |
 | 2026-09 | 36 | Added strict-provenance appearance-only comparison using cosine/dot-product evidence and normalized-vector Euclidean diagnostics, with explicit neutral missing/incompatible states and no thresholds, identity decisions, candidate integration or accuracy claim | Implemented |
 | 2026-09 | 37 | Added an opt-in parallel hybrid pairwise matcher that reuses frozen Phase 2 physical/fingerprint results, enforces physical and trusted-plate hard gates, and exposes separate attribute/appearance diagnostics without aggregate probability, collector integration, persistence or accuracy claims | Implemented |
 | 2026-09 | 38 | Added additive observation-scoped SQLite vehicle/appearance evidence persistence with monotonic transactional saves, versioned little-endian float64 embeddings, explicit missing evidence and strict provenance/corruption checks; no historical retrieval, vector index, global identity or production integration | Implemented |
 | 2026-09 | 39 | Added opt-in persistence-backed forward candidate retrieval with strict time/camera bounds, paged embedding-free SQL scans, unchanged Phase 2 physical gates, deterministic chronological truncation and a post-filter hard cap; no appearance comparison, hybrid ranking, query history or identity semantics | Implemented |
 | 2026-09 | 40 | Added immutable SQLite audit history for caller-identified Phase 3 queries, exact Step 39 retrieval order/diagnostics and optional caller-supplied Step 37 snapshots, with atomic insertion and conflict-safe idempotency; no new ranking, identity probability, trajectory, API or accuracy semantics | Implemented |
+| 2026-09 | 41 | Added bounded, deterministic, in-memory inferred trajectory hypotheses from explicitly supplied immutable Step 40 history; precomputed Step 37 hard gates remain authoritative, branches remain explainable, and exact Phase 2 trajectories stay separate, with no persistence, global identity, probability, API or accuracy claim | Implemented |
 | 2026-09 | Phase 1 accuracy audit | Added external-label manifests, dataset leakage/integrity audit, detector configuration sweeps, OCR preprocessing and track-fusion ablations, linked end-to-end recognition, stage-correct metrics, and experiment provenance without changing production inference | Implemented; labeled dataset required for measurements |
 
 ---
