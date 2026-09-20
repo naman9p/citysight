@@ -43,16 +43,28 @@ _PERSISTENCE_EXPORTS = frozenset({
     "VehicleEvidencePersistenceError",
     "VehicleEvidenceRecord",
     "VehicleEvidenceRepository",
+    "VehicleEvidenceQueryCursor",
+    "VehicleEvidenceSummary",
     "VehicleEvidenceValidationError",
+})
+
+_RETRIEVAL_EXPORTS = frozenset({
+    "HistoricalCandidate",
+    "HistoricalCandidateRetrievalError",
+    "HistoricalCandidateRetrievalPolicy",
+    "HistoricalCandidateRetrievalResult",
+    "HistoricalCandidateRetriever",
 })
 
 
 def __getattr__(name):
-    """Lazy-load Phase 2-backed Step 37/38 modules on demand."""
+    """Lazy-load Phase 2-backed Step 37–39 modules on demand."""
     if name in _HYBRID_EXPORTS:
         from phase3_city import hybrid_matching as module
     elif name in _PERSISTENCE_EXPORTS:
         from phase3_city import evidence_persistence as module
+    elif name in _RETRIEVAL_EXPORTS:
+        from phase3_city import historical_candidate_retrieval as module
     else:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     value = getattr(module, name)
@@ -75,6 +87,11 @@ __all__ = [
     "HybridCandidateMatchResult",
     "HybridCandidateStatus",
     "HybridEvidenceComponent",
+    "HistoricalCandidate",
+    "HistoricalCandidateRetrievalError",
+    "HistoricalCandidateRetrievalPolicy",
+    "HistoricalCandidateRetrievalResult",
+    "HistoricalCandidateRetriever",
     "LocalTorchScriptAppearanceEncoder",
     "Phase3HybridCandidateMatcher",
     "PhysicalFeasibilityEvidence",
@@ -88,6 +105,8 @@ __all__ = [
     "VehicleEvidencePersistenceError",
     "VehicleEvidenceRecord",
     "VehicleEvidenceRepository",
+    "VehicleEvidenceQueryCursor",
+    "VehicleEvidenceSummary",
     "VehicleEvidenceValidationError",
     "VehicleAppearanceEmbedding",
     "VehicleAppearanceEncoder",

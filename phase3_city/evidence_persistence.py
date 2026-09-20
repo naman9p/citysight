@@ -12,7 +12,7 @@ import sqlite3
 import struct
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -75,6 +75,31 @@ CREATE TABLE IF NOT EXISTS phase3_vehicle_evidence (
          AND embedding_preprocessing_sha256 IS NOT NULL)
     )
 );
+CREATE INDEX IF NOT EXISTS idx_phase3_vehicle_evidence_timestamp_event
+    ON phase3_vehicle_evidence(timestamp, event_id);
+"""
+
+_FORWARD_SUMMARY_SQL = """
+    SELECT event_id, camera_id, timestamp, observation_status,
+           normalized_plate, vehicle_colour, vehicle_class
+    FROM phase3_vehicle_evidence
+    WHERE timestamp > ?
+      AND timestamp <= ?
+      AND camera_id <> ?
+    ORDER BY timestamp ASC, event_id ASC
+    LIMIT ?
+"""
+
+_FORWARD_SUMMARY_AFTER_SQL = """
+    SELECT event_id, camera_id, timestamp, observation_status,
+           normalized_plate, vehicle_colour, vehicle_class
+    FROM phase3_vehicle_evidence
+    WHERE timestamp > ?
+      AND timestamp <= ?
+      AND camera_id <> ?
+      AND (timestamp > ? OR (timestamp = ? AND event_id > ?))
+    ORDER BY timestamp ASC, event_id ASC
+    LIMIT ?
 """
 
 
@@ -202,6 +227,64 @@ class VehicleEvidenceRecord:
         }
 
 
+@dataclass(frozen=True)
+class VehicleEvidenceSummary:
+    """Embedding-free metadata used for bounded historical scanning."""
+
+    event_id: str
+    camera_id: str
+    timestamp: datetime
+    observation_status: str
+    fingerprint: VehicleFingerprint
+
+    def __post_init__(self):
+        try:
+            observation = FingerprintObservation(
+                event_id=self.event_id,
+                camera_id=self.camera_id,
+                timestamp=self.timestamp,
+                observation_status=self.observation_status,
+                fingerprint=self.fingerprint,
+            )
+        except (TypeError, ValueError) as exc:
+            raise VehicleEvidenceValidationError(str(exc)) from exc
+        if observation.timestamp is None:  # pragma: no cover - type contract
+            raise VehicleEvidenceValidationError(
+                "summary timestamp must be available")
+        object.__setattr__(self, "event_id", observation.event_id)
+        object.__setattr__(self, "camera_id", observation.camera_id)
+        object.__setattr__(self, "timestamp", observation.timestamp)
+        object.__setattr__(self, "observation_status",
+                           observation.observation_status)
+
+    def to_fingerprint_observation(self) -> FingerprintObservation:
+        return FingerprintObservation(
+            event_id=self.event_id,
+            camera_id=self.camera_id,
+            timestamp=self.timestamp,
+            observation_status=self.observation_status,
+            fingerprint=self.fingerprint,
+        )
+
+
+@dataclass(frozen=True)
+class VehicleEvidenceQueryCursor:
+    """Stable `(timestamp, event_id)` cursor for one bounded SQL page."""
+
+    timestamp: datetime
+    event_id: str
+
+    def __post_init__(self):
+        if not isinstance(self.event_id, str) or not self.event_id.strip():
+            raise VehicleEvidenceValidationError(
+                "cursor event_id must be a non-empty string")
+        object.__setattr__(
+            self,
+            "timestamp",
+            _utc_timestamp(self.timestamp, "cursor timestamp"),
+        )
+
+
 class VehicleEvidenceRepository(ABC):
     """Small event-keyed repository port for Phase 3 evidence."""
 
@@ -227,6 +310,32 @@ class VehicleEvidenceRepository(ABC):
     @abstractmethod
     def exists(self, event_id: str) -> bool:
         """Return whether one exact event key exists."""
+
+    @abstractmethod
+    def fetch_forward_candidate_summaries(
+            self,
+            *,
+            start_exclusive: datetime,
+            end_inclusive: datetime,
+            exclude_camera_id: str,
+            limit: int,
+            after: Optional[VehicleEvidenceQueryCursor] = None,
+    ) -> tuple[VehicleEvidenceSummary, ...]:
+        """Return one bounded chronological metadata page.
+
+        This intentionally omits embedding columns and cannot perform broad,
+        unbounded history retrieval.
+        """
+
+
+def _utc_timestamp(value, name: str) -> datetime:
+    if not isinstance(value, datetime):
+        raise VehicleEvidenceValidationError(
+            f"{name} must be a timezone-aware datetime")
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        raise VehicleEvidenceValidationError(
+            f"{name} must be a timezone-aware datetime")
+    return value.astimezone(timezone.utc)
 
 
 def _encode_embedding(embedding: VehicleAppearanceEmbedding) -> bytes:
@@ -471,6 +580,66 @@ class SQLiteVehicleEvidenceRepository(VehicleEvidenceRepository):
             ) from exc
         return row is not None
 
+    def fetch_forward_candidate_summaries(
+            self,
+            *,
+            start_exclusive: datetime,
+            end_inclusive: datetime,
+            exclude_camera_id: str,
+            limit: int,
+            after: Optional[VehicleEvidenceQueryCursor] = None,
+    ) -> tuple[VehicleEvidenceSummary, ...]:
+        start = _utc_timestamp(start_exclusive, "start_exclusive")
+        end = _utc_timestamp(end_inclusive, "end_inclusive")
+        if end <= start:
+            raise VehicleEvidenceValidationError(
+                "end_inclusive must be later than start_exclusive")
+        if (not isinstance(exclude_camera_id, str)
+                or not exclude_camera_id.strip()):
+            raise VehicleEvidenceValidationError(
+                "exclude_camera_id must be a non-empty string")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise VehicleEvidenceValidationError(
+                "limit must be an integer >= 1")
+        if after is not None:
+            if not isinstance(after, VehicleEvidenceQueryCursor):
+                raise VehicleEvidenceValidationError(
+                    "after must be a VehicleEvidenceQueryCursor or None")
+            if not (start < after.timestamp <= end):
+                raise VehicleEvidenceValidationError(
+                    "after cursor must be inside the requested time window")
+
+        start_text = start.isoformat()
+        end_text = end.isoformat()
+        if after is None:
+            sql = _FORWARD_SUMMARY_SQL
+            parameters = (
+                start_text,
+                end_text,
+                exclude_camera_id,
+                limit,
+            )
+        else:
+            cursor_text = after.timestamp.isoformat()
+            sql = _FORWARD_SUMMARY_AFTER_SQL
+            parameters = (
+                start_text,
+                end_text,
+                exclude_camera_id,
+                cursor_text,
+                cursor_text,
+                after.event_id,
+                limit,
+            )
+        try:
+            rows = self._conn.execute(sql, parameters).fetchall()
+        except sqlite3.Error as exc:
+            raise VehicleEvidencePersistenceError(
+                "failed to fetch bounded forward evidence: "
+                f"{exc}"
+            ) from exc
+        return tuple(self._row_to_summary(row) for row in rows)
+
     def close(self) -> None:
         self._conn.close()
 
@@ -588,6 +757,26 @@ class SQLiteVehicleEvidenceRepository(VehicleEvidenceRepository):
             raise VehicleEvidenceCorruptionError(
                 f"stored vehicle evidence is invalid: {exc}") from exc
 
+    @staticmethod
+    def _row_to_summary(row) -> VehicleEvidenceSummary:
+        try:
+            timestamp = datetime.fromisoformat(row["timestamp"])
+            return VehicleEvidenceSummary(
+                event_id=row["event_id"],
+                camera_id=row["camera_id"],
+                timestamp=timestamp,
+                observation_status=row["observation_status"],
+                fingerprint=VehicleFingerprint(
+                    normalized_plate=row["normalized_plate"],
+                    vehicle_colour=row["vehicle_colour"],
+                    vehicle_class=row["vehicle_class"],
+                ),
+            )
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise VehicleEvidenceCorruptionError(
+                f"stored vehicle evidence summary is invalid: {exc}"
+            ) from exc
+
 
 __all__ = [
     "EMBEDDING_SERIALIZATION_FORMAT",
@@ -600,5 +789,7 @@ __all__ = [
     "VehicleEvidencePersistenceError",
     "VehicleEvidenceRecord",
     "VehicleEvidenceRepository",
+    "VehicleEvidenceQueryCursor",
+    "VehicleEvidenceSummary",
     "VehicleEvidenceValidationError",
 ]
