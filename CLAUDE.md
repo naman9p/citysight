@@ -7,10 +7,18 @@ quality → rectification → OCR → fusion → normalization → confidence �
 canonical observation → SQLite persistence → HTTP API → dashboard → watchlist
 alerts.
 
-Phase 2 is implemented through Step 32: city camera topology, deterministic
+Phase 2 is development-complete through Step 33: city camera topology, deterministic
 recorded multi-camera replay, exact-plate trajectories, optional whole-vehicle
 enrichment, explainable bounded cross-camera candidate hypotheses, explicit
-ground-truth candidate evaluation, and the demo/evaluation runbook.
+ground-truth candidate evaluation, the demo/evaluation runbook, and the frozen
+real-world two-camera baseline.
+
+Step 34A/34B is the real-world ground-truth evaluation benchmark. Its format,
+capture/evaluation infrastructure, frame preparation, and local annotation
+tooling are complete. Exhaustive manual labels and final population-level
+metrics remain incomplete, so no accuracy claim is authorized. Phase 3
+development may proceed from Step 35, but final Phase 2-versus-Phase 3 benchmark
+claims remain blocked until Step 34B is complete.
 
 Do not implement later roadmap features unless explicitly asked.
 

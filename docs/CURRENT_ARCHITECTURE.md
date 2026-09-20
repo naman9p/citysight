@@ -854,13 +854,15 @@ This is an operational/runbook layer, not a new matching algorithm.
 
 ---
 
-## 24. Step 33 — external evaluation architecture
+## 24. Step 33 — validation history and completed baseline
 
 ### Current status
 
-**Phase 2 is active. Step 33 is the intended final Phase 2 step.**
+**Phase 2 functional development is complete through Step 33.**
 
-Step 33 goal:
+The original Step 33 plan sought an externally annotated cross-camera
+candidate-retrieval baseline using the already-built Steps 27–32 architecture.
+That historical goal was:
 
 > Produce the first credible externally annotated cross-camera candidate-retrieval baseline using the already-built Steps 27–32 architecture.
 
@@ -973,13 +975,19 @@ Raw videos/images must remain outside Git.
 
 RoundaboutHD may remain available externally for possible future vehicle-only,
 ReID or component research, but none of those uses constitutes the primary
-Step 33 baseline. Step 33 remains in progress and now requires a replacement
-external dataset compatible with the existing Indian ANPR
-observation-generation pipeline.
+Step 33 baseline. At that compatibility checkpoint, the external-dataset route
+could not complete the intended end-to-end evaluation.
+
+That historical route was superseded by the self-recorded two-camera validation
+documented in `docs/STEP33_REAL_WORLD_EVALUATION.md` and frozen by commit
+`c80da80`. Step 33 therefore completed the Phase 2 functional-development
+baseline. Exhaustive population-level detector, OCR, end-to-end, confidence,
+and candidate-retrieval measurement moved to the separate Step 34 benchmark;
+it is not evidence that those metrics are already known.
 
 ### Step 33 validation requirements
 
-Before relying on any replacement Step 33 dataset:
+Before relying on any future external dataset:
 
 - verify annotation schema;
 - verify camera identity semantics;
@@ -1433,30 +1441,39 @@ known graph link ≠ proof the vehicle used that road
 | Phase 2 | 31 | Ground-truth loader + evaluation runner | Complete |
 | Phase 2 | 32 | Demo/evaluation runbook | Complete |
 | Phase 2 | 33 | Real-world two-camera replay validation | Complete |
-| Evaluation | 34A | Real-world annotation format + fixed-baseline evaluator | Complete |
-| Evaluation | 34B | Manually labeled Step 33 accuracy results | **Pending manual labels** |
-| Phase 3 | — | To be decided after Step 34 measurement | Not started |
+| Evaluation | 34A | Real-world annotation format, capture/evaluator infrastructure, frame preparation and annotation tooling | Complete |
+| Evaluation | 34B | Exhaustive manual labels, observation adjudication and final population-level metrics | **Pending manual labels** |
+| Phase 3 | 35 | Learned vehicle appearance/ReID embedding foundation | Approved; not started |
+| Phase 3 | 36 | Explainable appearance-evidence comparison | Planned |
+| Phase 3 | 37 | Hybrid plate/attribute/appearance candidate matching | Planned |
+| Phase 3 | 38 | Persistent vehicle and appearance evidence storage | Planned |
+| Phase 3 | 39 | Bounded historical candidate retrieval | Planned |
+| Phase 3 | 40 | Query and ranking-history persistence | Planned |
+| Phase 3 | 41 | Inferred trajectory hypotheses | Planned |
+| Phase 3 | 42 | Read-only Phase 3 API/dashboard surfaces | Planned |
+| Phase 3 | 43 | Final benchmark, baseline comparison and ablation study | Blocked on Step 34B |
 
-Last known verified pre-Step-34 checkpoint:
+Frozen pre-Phase-3 repository point:
 
 ```text
 branch: main
-commit: c80da80 (Step 33 documentation commit; abbreviated)
-working tree: clean
-main == origin/main
-full suite: 806 passed
+commit: a86baa8
+Phase 2 runtime/config baseline commit: c80da80
 ```
 
 Always verify this against Git before the next implementation step.
 
 ---
 
-## 38. Current Step 34 architecture objective
+## 38. Step 34 benchmark status and Phase 3 sequencing
 
-The immediate system objective is **manual ground-truth measurement**, not
-adding more intelligence.
+Step 34 is the real-world ground-truth evaluation benchmark. Its strict label
+format, fixed-baseline capture/evaluator, frame extraction, and prediction-blind
+local annotation helper are implemented. Step 34B remains incomplete because
+the full frame population has not been manually labeled and replay observations
+have not been fully adjudicated.
 
-Required sequence:
+The required sequence within the Step 34 workstream remains:
 
 ```text
 review every Step 33 frame selected at 10 FPS
@@ -1478,7 +1495,12 @@ evaluate cross-camera retrieval only if identity labels are sufficient
 document reproducible protocol and results
 ```
 
-Do not add ReID embeddings before measuring the deterministic baseline.
+Phase 3 development is explicitly allowed to proceed from Step 35 before Step
+34B manual labeling is complete. This sequencing decision permits engineering
+work only. It does **not** authorize detector, OCR, end-to-end, confidence,
+appearance, hybrid-matching, or candidate-retrieval accuracy claims. Final
+Phase 2-versus-Phase 3 benchmark claims remain blocked until Step 34B ground
+truth, baseline capture, observation adjudication, and evaluation are complete.
 
 RoundaboutHD has completed this compatibility gate and was rejected as the
 primary end-to-end dataset after producing zero plate detections, tracks and
@@ -1487,23 +1509,75 @@ or change CitySight inference policies merely to bypass that result.
 
 ---
 
-## 39. Potential future architecture — NOT IMPLEMENTED
+## 39. Frozen Phase 2 comparison baseline
 
-These are possible future directions only after evaluation justifies them:
+Phase 3 development must preserve the ability to reproduce and compare against
+the pre-Phase-3 system. The frozen baseline consists of:
 
-### Learned vehicle ReID
+- repository point `a86baa8`;
+- `phase1_anpr/config/config.step33.yaml`;
+- `phase2_city/config/city.step33.yaml`;
+- `phase2_city/config/replay.step33.yaml`;
+- the existing Phase 2 fingerprint, matcher, collector and deterministic
+  ranking semantics;
+- Step 34 prediction-capture provenance, including input/config/model hashes.
 
-```text
-vehicle crop
-   ↓
-feature encoder
-   ↓
-embedding
-   ↓
-appearance similarity
-```
+New Phase 3 behavior must be opt-in and implemented alongside the Phase 2
+matcher/collector rather than silently changing their historical decisions.
+With Phase 3 disabled, production Phase 1 outputs and existing Phase 2
+candidate results must remain unchanged. Step 43 must evaluate the frozen
+Phase 2 path and the Phase 3 path against the same completed Step 34 ground
+truth, retrieval bounds and denominators.
 
-The RoundaboutHD ReID subset may help evaluate this later.
+---
+
+## 39A. Authoritative Phase 3 roadmap — NOT IMPLEMENTED
+
+The current ordered roadmap is:
+
+| Step | Capability |
+|---:|---|
+| 35 | Learned vehicle appearance/ReID embedding foundation |
+| 36 | Explainable appearance-evidence comparison |
+| 37 | Hybrid plate/attribute/appearance candidate matching |
+| 38 | Persistent vehicle and appearance evidence storage |
+| 39 | Bounded historical candidate retrieval |
+| 40 | Query and ranking-history persistence |
+| 41 | Inferred trajectory hypotheses |
+| 42 | Read-only Phase 3 API/dashboard surfaces |
+| 43 | Final benchmark, baseline comparison and ablation study |
+
+Historical frozen planning used Phase 3 Steps 34–42. Those references remain
+historically valid and must not be silently rewritten; they map one-to-one to
+current Steps 35–43 after Step 34 became the real-world evaluation benchmark.
+
+Phase 3 must preserve these rules throughout:
+
+- physical-feasibility failures remain authoritative hard gates;
+- a trusted plate contradiction is authoritative in the new Phase 3 hybrid
+  path, without rewriting frozen Phase 2 matcher semantics;
+- missing appearance evidence is neutral, not contradictory evidence;
+- appearance similarity is an evidence score, not an identity probability;
+- no persistent global vehicle identity is created;
+- exact-plate trajectories remain separate from inferred trajectory
+  hypotheses;
+- candidate retrieval is structurally and deterministically bounded before
+  appearance scoring;
+- SQLite and the local filesystem remain the default persistence mechanisms;
+- the stdlib HTTP server and plain HTML/CSS/JavaScript remain the default API
+  and dashboard architecture;
+- FastAPI, vector databases, Kafka, Kubernetes and a microservice split remain
+  out of scope;
+- no new dependency is added without explicit justification and approval;
+- model weights are local, explicitly configured and lazy-loaded, with no
+  automatic downloads;
+- externally verified ground truth is required for any accuracy claim;
+- production Phase 1 behavior remains unchanged when Phase 3 is disabled.
+
+### Additional possible future work
+
+The following remains possible but is not part of the approved Steps 35–43
+unless a later roadmap decision adds it:
 
 ### Make/model recognition
 
@@ -1585,8 +1659,9 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 27–29 | Added explainable pairwise matching, bounded candidate collection and reporting | Implemented |
 | 2026-09 | 30–31 | Added independent-ground-truth candidate evaluation and reproducible runner | Implemented |
 | 2026-09 | 32 | Added Phase 2 demo/evaluation runbook | Implemented |
-| 2026-09 | 33 | Validated RoundaboutHD timing/identity semantics, then rejected it as the primary end-to-end dataset after an unchanged 600-frame CitySight preflight produced zero plate detections, tracks and observations; replacement dataset required | In progress |
+| 2026-09 | 33 | Rejected RoundaboutHD as an incompatible end-to-end ANPR benchmark, then completed the Phase 2 functional baseline with the frozen self-recorded two-camera replay validation | Implemented |
 | 2026-09 | 34 Part A/B helper | Added the strict real-video benchmark adapter, frame preparation, and a loopback-only prediction-blind manual annotation UI with revision-checked atomic YAML persistence; exhaustive human labeling remains pending | Implemented; labels pending |
+| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; not implemented |
 | 2026-09 | Phase 1 accuracy audit | Added external-label manifests, dataset leakage/integrity audit, detector configuration sweeps, OCR preprocessing and track-fusion ablations, linked end-to-end recognition, stage-correct metrics, and experiment provenance without changing production inference | Implemented; labeled dataset required for measurements |
 
 ---
@@ -1650,4 +1725,5 @@ frames.
 Exhaustive independent labeling remains pending. The architecture must not
 claim detector, OCR, end-to-end, confidence, or cross-camera percentages until
 those manual labels exist and the evaluator has calculated the stated
-numerators and denominators.
+numerators and denominators. Phase 3 engineering may proceed in parallel, but
+that sequencing change does not relax the benchmark or ground-truth gate.
