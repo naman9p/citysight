@@ -224,7 +224,9 @@ immutable audit persistence for that supplied order and optional already-
 computed Step 37 evidence. Step 41 consumes explicitly supplied Step 40 records
 read-only and constructs bounded, deterministic, in-memory inferred paths from
 eligible precomputed snapshots. Step 42 adds an opt-in read service and static
-dashboard inspection panel over those existing records/results.
+dashboard inspection panel over those existing records/results. Step 43A adds
+read-only, hash-bound benchmark/comparison tooling; Step 43B remains pending
+new videos and completed prediction-blind manual labels.
 
 No Phase 3 relevance-ranking algorithm or identity decision is part of this
 layer. A `TrajectoryHypothesis` is an auditable possibility, not an exact
@@ -1159,7 +1161,8 @@ Step 41 adds no SQLite table, filesystem write, query-history mutation,
 candidate ranking, aggregate confidence, identity probability, global vehicle
 entity, HTTP endpoint, dashboard or accuracy claim. Step 42 owns read-only
 Phase 3 API/dashboard surfaces. Step 43 owns the externally verified benchmark,
-frozen-baseline comparison and ablation study after Step 34B is complete.
+frozen-baseline comparison and ablation study; Step 43B awaits new videos and
+completed prediction-blind labels.
 
 ---
 
@@ -1227,7 +1230,8 @@ method-not-allowed error. Step 42 adds no save/update/delete call, table, model
 execution, historical retrieval, matcher, ranking, threshold, global identity,
 probability, ground-truth access or accuracy claim. Existing Phase 1/2 route
 semantics remain unchanged. Step 43 remains responsible for the final
-externally verified benchmark, frozen-baseline comparison and ablation study.
+externally verified benchmark, frozen-baseline comparison and ablation study;
+Step 43A provides tooling and Step 43B performs the future evaluation.
 
 ---
 
@@ -2022,7 +2026,8 @@ known graph link ≠ proof the vehicle used that road
 | Phase 3 | 40 | Query and ranking-history persistence | Complete |
 | Phase 3 | 41 | Inferred trajectory hypotheses | Complete |
 | Phase 3 | 42 | Read-only Phase 3 API/dashboard surfaces | Complete |
-| Phase 3 | 43 | Final benchmark, baseline comparison and ablation study | Blocked on Step 34B |
+| Phase 3 | 43A | Final benchmark, baseline-comparison and ablation tooling | Complete |
+| Phase 3 | 43B | Execute final benchmark on new prediction-blind real-world labels | **Pending new videos and manual labels** |
 
 Frozen pre-Phase-3 repository point:
 
@@ -2038,11 +2043,14 @@ Always verify this against Git before the next implementation step.
 
 ## 38. Step 34 benchmark status and Phase 3 sequencing
 
-Step 34 is the real-world ground-truth evaluation benchmark. Its strict label
+Step 34 is the original real-world ground-truth evaluation benchmark. Its strict label
 format, fixed-baseline capture/evaluator, frame extraction, and prediction-blind
 local annotation helper are implemented. Step 34B remains incomplete because
 the full frame population has not been manually labeled and replay observations
-have not been fully adjudicated.
+have not been fully adjudicated. That incomplete local label population is
+retained as historical work in progress and will not be used for the final
+Phase 2-versus-Phase 3 benchmark. Step 43B will instead apply the same
+prediction-blind methodology to new videos supplied later.
 
 The required sequence within the Step 34 workstream remains:
 
@@ -2070,8 +2078,10 @@ Phase 3 development is explicitly allowed to proceed from Step 35 before Step
 34B manual labeling is complete. This sequencing decision permits engineering
 work only. It does **not** authorize detector, OCR, end-to-end, confidence,
 appearance, hybrid-matching, or candidate-retrieval accuracy claims. Final
-Phase 2-versus-Phase 3 benchmark claims remain blocked until Step 34B ground
-truth, baseline capture, observation adjudication, and evaluation are complete.
+Phase 2-versus-Phase 3 benchmark claims remain blocked until the new Step 43B
+ground truth, frozen-baseline capture, Phase 3 evidence capture, observation
+adjudication, and evaluation are complete. Step 43A tooling does not relax that
+gate and makes no accuracy claim.
 
 RoundaboutHD has completed this compatibility gate and was rejected as the
 primary end-to-end dataset after producing zero plate detections, tracks and
@@ -2096,9 +2106,9 @@ the pre-Phase-3 system. The frozen baseline consists of:
 New Phase 3 behavior must be opt-in and implemented alongside the Phase 2
 matcher/collector rather than silently changing their historical decisions.
 With Phase 3 disabled, production Phase 1 outputs and existing Phase 2
-candidate results must remain unchanged. Step 43 must evaluate the frozen
-Phase 2 path and the Phase 3 path against the same completed Step 34 ground
-truth, retrieval bounds and denominators.
+candidate results must remain unchanged. Step 43B must evaluate the frozen
+Phase 2 path and the Phase 3 path against the same newly completed,
+Step-34-schema ground truth, eligible case population and denominators.
 
 ---
 
@@ -2116,7 +2126,8 @@ The current ordered roadmap is:
 | 40 | Query and ranking-history persistence | Implemented |
 | 41 | Inferred trajectory hypotheses | Implemented |
 | 42 | Read-only Phase 3 API/dashboard surfaces | Implemented |
-| 43 | Final benchmark, baseline comparison and ablation study | Blocked on Step 34B |
+| 43A | Final benchmark, baseline-comparison and ablation tooling | Implemented |
+| 43B | Final benchmark execution and claims | Pending new videos and prediction-blind manual labels |
 
 Historical frozen planning used Phase 3 Steps 34–42. Those references remain
 historically valid and must not be silently rewritten; they map one-to-one to
@@ -2144,6 +2155,54 @@ Phase 3 must preserve these rules throughout:
   automatic downloads;
 - externally verified ground truth is required for any accuracy claim;
 - production Phase 1 behavior remains unchanged when Phase 3 is disabled.
+
+---
+
+## 39B. Step 43 final benchmark boundary
+
+Step 43A adds `phase1_anpr.evaluation.step43`, a read-only reporting layer over
+captured artifacts. It does not invoke or alter production inference. The
+existing Step 34 loaders and evaluator remain authoritative for detector, OCR,
+end-to-end, confidence/status, false-positive and frozen Phase 2
+cross-camera-ranking metrics. The Step 43 wrapper applies them to the combined
+population and to arbitrary camera-ID groups without changing metric formulas.
+
+A versioned run manifest binds one benchmark ID and ground-truth SHA-256 to:
+
+- each source video and its SHA-256 plus optional capture metadata;
+- the frozen Phase 2 reference `a86baa8`, prediction capture, Step 33 pipeline,
+  city/topology and replay configs, the new benchmark scenario,
+  retrieval/physical policy and matcher ID;
+- an explicit Phase 3 implementation reference, captured evidence bundle,
+  retrieval/physical/hybrid/hypothesis policies and appearance provenance or
+  an explicit unavailable reason;
+- explicit creation and evaluation timestamps.
+
+Every referenced artifact is hash-checked. Source/camera/video mappings and
+benchmark IDs must agree. Final-claim output is unavailable while any frame,
+observation population or plate/observation link remains unreviewed, or while
+fewer than two manually verified cross-camera cases exist. Ground truth,
+frozen Phase 2 rankings and Phase 3 evidence must contain the same source-case
+IDs. The evaluator is deterministic, rejects non-finite JSON and writes its
+five output artifacts by atomic replacement.
+
+The Phase 3 bundle preserves Step 39 chronological retrieval position and
+actual Step 37 evidence states. Step 43 reports physical hard-gate, trusted
+plate contradiction, appearance availability/incompatibility,
+eligible-with/without-evidence, hypothesis-count, branch and coverage
+diagnostics, both combined and grouped by each source case's camera ID. These
+remain diagnostics rather than identity probabilities.
+Because current Phase 3 has no approved relevance ordering, Phase 3 Recall@K,
+HitRate@K and MRR are explicitly unavailable. Step 43A does not add an
+appearance threshold, cosine ranker, aggregate hybrid score, winner or
+same-vehicle classifier.
+
+Step 43B will run only after new videos have prediction-blind externally
+verified labels. Paired records expose each side's numerator, denominator and
+case IDs; an absolute delta is permitted only when the metric semantics,
+denominator and case population are the same. Exact Phase 2 trajectories and
+inferred Phase 3 hypotheses remain separate. The future procedure and manifest
+schema are documented in `docs/STEP43_FINAL_BENCHMARK.md`.
 
 ### Additional possible future work
 
@@ -2232,7 +2291,7 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 32 | Added Phase 2 demo/evaluation runbook | Implemented |
 | 2026-09 | 33 | Rejected RoundaboutHD as an incompatible end-to-end ANPR benchmark, then completed the Phase 2 functional baseline with the frozen self-recorded two-camera replay validation | Implemented |
 | 2026-09 | 34 Part A/B helper | Added the strict real-video benchmark adapter, frame preparation, and a loopback-only prediction-blind manual annotation UI with revision-checked atomic YAML persistence; exhaustive human labeling remains pending | Implemented; labels pending |
-| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–42 implemented |
+| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining externally verified prediction-blind labels as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–42 and 43A implemented |
 | 2026-09 | 35 | Added an isolated, disabled-by-default learned appearance-embedding boundary with deterministic preprocessing, immutable model/weights/preprocessing provenance, a model-neutral encoder port, and lazy local TorchScript loading; no comparison, matching, persistence, identity semantics or accuracy claim | Implemented |
 | 2026-09 | 36 | Added strict-provenance appearance-only comparison using cosine/dot-product evidence and normalized-vector Euclidean diagnostics, with explicit neutral missing/incompatible states and no thresholds, identity decisions, candidate integration or accuracy claim | Implemented |
 | 2026-09 | 37 | Added an opt-in parallel hybrid pairwise matcher that reuses frozen Phase 2 physical/fingerprint results, enforces physical and trusted-plate hard gates, and exposes separate attribute/appearance diagnostics without aggregate probability, collector integration, persistence or accuracy claims | Implemented |
@@ -2241,6 +2300,7 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 40 | Added immutable SQLite audit history for caller-identified Phase 3 queries, exact Step 39 retrieval order/diagnostics and optional caller-supplied Step 37 snapshots, with atomic insertion and conflict-safe idempotency; no new ranking, identity probability, trajectory, API or accuracy semantics | Implemented |
 | 2026-09 | 41 | Added bounded, deterministic, in-memory inferred trajectory hypotheses from explicitly supplied immutable Step 40 history; precomputed Step 37 hard gates remain authoritative, branches remain explainable, and exact Phase 2 trajectories stay separate, with no persistence, global identity, probability, API or accuracy claim | Implemented |
 | 2026-09 | 42 | Added opt-in read-only stdlib HTTP and vanilla-JavaScript inspection for Step 38 evidence, exact Step 40 retrieval history and explicitly bounded Step 41 inferred hypotheses; configured SQLite files open read-only, raw vectors stay private, and exact Phase 2 trajectories remain separate, with no writes, matcher/ranker, identity probability or accuracy claim | Implemented |
+| 2026-09 | 43A | Added hash-bound, read-only final-benchmark tooling that reuses Step 34 metrics, requires identical ground truth/case populations, reports arbitrary per-camera groups and Phase 3 evidence/hypothesis diagnostics, and keeps unordered Phase 3 rank metrics explicitly unavailable; Step 43B awaits new videos and labels | Implemented; no accuracy claim |
 | 2026-09 | Phase 1 accuracy audit | Added external-label manifests, dataset leakage/integrity audit, detector configuration sweeps, OCR preprocessing and track-fusion ablations, linked end-to-end recognition, stage-correct metrics, and experiment provenance without changing production inference | Implemented; labeled dataset required for measurements |
 
 ---

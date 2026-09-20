@@ -953,6 +953,21 @@ def build_parser() -> argparse.ArgumentParser:
         )
 
     annotate.set_defaults(handler=_annotate_real_world)
+
+    step43 = subparsers.add_parser(
+        "step43",
+        help="build the read-only paired Step 43 benchmark and ablation reports",
+    )
+    step43.add_argument("--manifest", required=True)
+    step43.add_argument(
+        "--output-dir", default="outputs/annotated/step43_evaluation")
+
+    def _run_step43(args):
+        from phase1_anpr.evaluation.step43 import run_step43_benchmark
+
+        return run_step43_benchmark(args.manifest, args.output_dir)
+
+    step43.set_defaults(handler=_run_step43)
     return parser
 
 
