@@ -32,13 +32,30 @@ _HYBRID_EXPORTS = frozenset({
     "TrustedPlateRelation",
 })
 
+_PERSISTENCE_EXPORTS = frozenset({
+    "EMBEDDING_SERIALIZATION_FORMAT",
+    "EMBEDDING_SERIALIZATION_VERSION",
+    "EMBEDDING_VECTOR_TOLERANCE",
+    "SQLiteVehicleEvidenceRepository",
+    "VEHICLE_EVIDENCE_SCHEMA_VERSION",
+    "VehicleEvidenceConflictError",
+    "VehicleEvidenceCorruptionError",
+    "VehicleEvidencePersistenceError",
+    "VehicleEvidenceRecord",
+    "VehicleEvidenceRepository",
+    "VehicleEvidenceValidationError",
+})
+
 
 def __getattr__(name):
-    """Lazy-load Step 37 without coupling Step 35/36 imports to Phase 2."""
-    if name not in _HYBRID_EXPORTS:
+    """Lazy-load Phase 2-backed Step 37/38 modules on demand."""
+    if name in _HYBRID_EXPORTS:
+        from phase3_city import hybrid_matching as module
+    elif name in _PERSISTENCE_EXPORTS:
+        from phase3_city import evidence_persistence as module
+    else:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    from phase3_city import hybrid_matching
-    value = getattr(hybrid_matching, name)
+    value = getattr(module, name)
     globals()[name] = value
     return value
 
@@ -52,6 +69,9 @@ __all__ = [
     "AppearanceEvidenceUnavailableError",
     "AppearancePreprocessingConfig",
     "AttributeEvidence",
+    "EMBEDDING_SERIALIZATION_FORMAT",
+    "EMBEDDING_SERIALIZATION_VERSION",
+    "EMBEDDING_VECTOR_TOLERANCE",
     "HybridCandidateMatchResult",
     "HybridCandidateStatus",
     "HybridEvidenceComponent",
@@ -59,8 +79,16 @@ __all__ = [
     "Phase3HybridCandidateMatcher",
     "PhysicalFeasibilityEvidence",
     "PhysicalGateStatus",
+    "SQLiteVehicleEvidenceRepository",
     "TrustedPlateEvidence",
     "TrustedPlateRelation",
+    "VEHICLE_EVIDENCE_SCHEMA_VERSION",
+    "VehicleEvidenceConflictError",
+    "VehicleEvidenceCorruptionError",
+    "VehicleEvidencePersistenceError",
+    "VehicleEvidenceRecord",
+    "VehicleEvidenceRepository",
+    "VehicleEvidenceValidationError",
     "VehicleAppearanceEmbedding",
     "VehicleAppearanceEncoder",
     "build_vehicle_appearance_encoder",

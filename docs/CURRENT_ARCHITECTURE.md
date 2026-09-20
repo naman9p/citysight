@@ -57,6 +57,7 @@ It combines:
 - optional learned vehicle-appearance embedding evidence;
 - explainable appearance-only comparison diagnostics;
 - parallel Phase 3 hybrid candidate matching;
+- observation-scoped Phase 3 vehicle/appearance evidence persistence;
 - physical travel-feasibility reasoning;
 - bounded cross-camera candidate retrieval;
 - candidate reporting;
@@ -119,6 +120,9 @@ flowchart TD
     Z --> AM[Opt-in Phase 3 Hybrid Pairwise Matcher]
     AL --> AM
     AM --> AN[Explainable Gate + Evidence Result]
+    Y -. opt-in save .-> AO[Phase 3 Vehicle Evidence Repository]
+    AI -. opt-in save .-> AO
+    AO --> AP[(SQLite phase3_vehicle_evidence)]
 ```
 
 ---
@@ -196,10 +200,11 @@ Step 36 adds a deterministic appearance-only comparison for two such
 embeddings. Both features remain isolated from the Phase 1 pipeline and frozen
 Phase 2 matcher/collector. Step 37 adds an opt-in parallel pairwise matcher that
 reuses Phase 2 physical/fingerprint results while enforcing stricter Phase 3
-hard-gate authority.
+hard-gate authority. Step 38 adds an opt-in observation-scoped SQLite evidence
+repository without automatically wiring it into replay or production.
 
-No Phase 3 candidate collection/reranking, persistence, historical retrieval
-or identity decision is part of this layer yet.
+No Phase 3 candidate collection/reranking, historical retrieval or identity
+decision is part of this layer yet.
 
 ---
 
@@ -421,7 +426,14 @@ PlateObservation
    └── evidence images     → local filesystem
 ```
 
-### 6.3 Storage non-goals
+### 6.3 Phase 3 vehicle and appearance evidence
+
+Step 38 adds a separate additive SQLite table for event-scoped vehicle evidence
+and optional learned embeddings. It does not alter the Phase 1 observation
+table or image evidence store. See Section 17D for the schema and serialization
+contract.
+
+### 6.4 Storage non-goals
 
 Do not replace the current SIH storage architecture with:
 
@@ -856,7 +868,79 @@ the authoritative contradiction rule.
 Step 37 does not connect this result to `ReplayCandidateCollector`, alter
 candidate bounds or ranking, persist embeddings/results, access history, modify
 exact trajectories, add API/dashboard surfaces, or make an accuracy claim.
-Step 38 remains the approved persistence step.
+Step 38 now implements persistence through the separate, opt-in boundary below.
+
+---
+
+## 17D. Observation-scoped Phase 3 evidence persistence
+
+Step 38 adds `phase3_city.evidence_persistence` and the repository port
+`VehicleEvidenceRepository`, with `SQLiteVehicleEvidenceRepository` as the
+default implementation. It is storage-only and opt-in; no production pipeline,
+replay, candidate collector or API automatically writes to it.
+
+The dedicated additive table is `phase3_vehicle_evidence`, keyed by the
+existing canonical `event_id`. It stores:
+
+- `event_id`, `camera_id`, optional UTC timestamp and canonical observation
+  status;
+- normalized plate, vehicle colour and vehicle class fingerprint fields;
+- record schema version;
+- embedding serialization version and format;
+- explicit appearance-present flag;
+- optional embedding vector BLOB, dimension, model ID/version, weights SHA-256
+  and preprocessing SHA-256.
+
+No source ID is copied because it is not a field of the canonical persisted
+observation or `FingerprintObservation`; replay already folds source context
+into stable event-ID generation. No foreign key targets `plate_observations`:
+existing deployments may keep Phase 1 observations and Phase 3 evidence in
+different SQLite files. `event_id` is therefore an application-level stable
+reference, avoiding a brittle requirement that the Phase 1 table exist in the
+same database.
+
+Embedding serialization version `1` is explicitly:
+
+```text
+format: ieee754-float64-le
+dtype:  IEEE-754 binary64
+order:  little-endian
+shape:  exactly [dimension]
+bytes:  dimension * 8
+```
+
+Binary64 matches Python's stored Step 35 float values and avoids float32
+precision loss. Loading checks versions, format, byte length, shape, finiteness,
+non-zero norm and all Step 35 provenance by reconstructing a validated
+`VehicleAppearanceEmbedding`. Step 36 cosine and distance behavior is preserved
+after round-trip within an explicitly tested absolute tolerance of `1e-12`.
+
+Missing appearance is represented by `appearance_present = 0` with every
+embedding/provenance column NULL. A zero vector or placeholder is never
+created. `exists(event_id)` distinguishes an absent event record from an event
+whose appearance is unavailable.
+
+Save behavior is transactional and monotonic:
+
+- a new event is inserted;
+- an identical retry is an idempotent no-op;
+- missing fingerprint fields and missing appearance may be enriched later;
+- incoming missing fields never erase existing evidence;
+- conflicting event metadata or non-null fingerprint values are rejected;
+- incompatible embedding provenance or a materially different vector is
+  rejected rather than silently overwritten;
+- SQLite failures roll back the transaction and surface a domain error.
+
+All SQL values are parameterized. Schema creation uses the repository's
+existing idempotent `CREATE TABLE IF NOT EXISTS` convention. Database CHECK
+constraints enforce status, version, format, appearance/null consistency and
+BLOB length. Corrupt rows fail explicitly during validated reconstruction.
+
+This table represents evidence for one observation, not a physical vehicle.
+It contains no global/canonical vehicle ID, cluster, identity probability or
+entity graph. Step 38 adds no time/camera listing, historical search,
+similarity query, ANN/vector index, ranking, trajectory, API surface or accuracy
+claim. Step 39 owns bounded historical candidate retrieval.
 
 ---
 
@@ -1570,7 +1654,7 @@ Unless a future reviewed step changes this document, CitySight does **not** curr
 - Phase 3 candidate collection, hybrid reranking or production rollout;
 - appearance thresholds, same-vehicle classifications or identity probabilities;
 - bundled or automatically downloaded ReID weights;
-- appearance-vector persistence or historical appearance search;
+- historical appearance search, ANN or vector indexing;
 - automatic make/model recognition;
 - global probabilistic vehicle identity assignment.
 
@@ -1646,7 +1730,7 @@ known graph link ≠ proof the vehicle used that road
 | Phase 3 | 35 | Learned vehicle appearance/ReID embedding foundation | Complete |
 | Phase 3 | 36 | Explainable appearance-evidence comparison | Complete |
 | Phase 3 | 37 | Hybrid plate/attribute/appearance candidate matching | Complete |
-| Phase 3 | 38 | Persistent vehicle and appearance evidence storage | Planned |
+| Phase 3 | 38 | Persistent vehicle and appearance evidence storage | Complete |
 | Phase 3 | 39 | Bounded historical candidate retrieval | Planned |
 | Phase 3 | 40 | Query and ranking-history persistence | Planned |
 | Phase 3 | 41 | Inferred trajectory hypotheses | Planned |
@@ -1740,7 +1824,7 @@ The current ordered roadmap is:
 | 35 | Learned vehicle appearance/ReID embedding foundation | Implemented |
 | 36 | Explainable appearance-evidence comparison | Implemented |
 | 37 | Hybrid plate/attribute/appearance candidate matching | Implemented |
-| 38 | Persistent vehicle and appearance evidence storage | Planned |
+| 38 | Persistent vehicle and appearance evidence storage | Implemented |
 | 39 | Bounded historical candidate retrieval | Planned |
 | 40 | Query and ranking-history persistence | Planned |
 | 41 | Inferred trajectory hypotheses | Planned |
@@ -1861,10 +1945,11 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 32 | Added Phase 2 demo/evaluation runbook | Implemented |
 | 2026-09 | 33 | Rejected RoundaboutHD as an incompatible end-to-end ANPR benchmark, then completed the Phase 2 functional baseline with the frozen self-recorded two-camera replay validation | Implemented |
 | 2026-09 | 34 Part A/B helper | Added the strict real-video benchmark adapter, frame preparation, and a loopback-only prediction-blind manual annotation UI with revision-checked atomic YAML persistence; exhaustive human labeling remains pending | Implemented; labels pending |
-| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–37 implemented |
+| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–38 implemented |
 | 2026-09 | 35 | Added an isolated, disabled-by-default learned appearance-embedding boundary with deterministic preprocessing, immutable model/weights/preprocessing provenance, a model-neutral encoder port, and lazy local TorchScript loading; no comparison, matching, persistence, identity semantics or accuracy claim | Implemented |
 | 2026-09 | 36 | Added strict-provenance appearance-only comparison using cosine/dot-product evidence and normalized-vector Euclidean diagnostics, with explicit neutral missing/incompatible states and no thresholds, identity decisions, candidate integration or accuracy claim | Implemented |
 | 2026-09 | 37 | Added an opt-in parallel hybrid pairwise matcher that reuses frozen Phase 2 physical/fingerprint results, enforces physical and trusted-plate hard gates, and exposes separate attribute/appearance diagnostics without aggregate probability, collector integration, persistence or accuracy claims | Implemented |
+| 2026-09 | 38 | Added additive observation-scoped SQLite vehicle/appearance evidence persistence with monotonic transactional saves, versioned little-endian float64 embeddings, explicit missing evidence and strict provenance/corruption checks; no historical retrieval, vector index, global identity or production integration | Implemented |
 | 2026-09 | Phase 1 accuracy audit | Added external-label manifests, dataset leakage/integrity audit, detector configuration sweeps, OCR preprocessing and track-fusion ablations, linked end-to-end recognition, stage-correct metrics, and experiment provenance without changing production inference | Implemented; labeled dataset required for measurements |
 
 ---
