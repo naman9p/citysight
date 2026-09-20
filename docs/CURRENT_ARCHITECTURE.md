@@ -54,6 +54,7 @@ It combines:
 - whole-vehicle detection;
 - vehicle attributes;
 - deterministic vehicle fingerprints;
+- optional learned vehicle-appearance embedding evidence;
 - physical travel-feasibility reasoning;
 - bounded cross-camera candidate retrieval;
 - candidate reporting;
@@ -95,6 +96,9 @@ flowchart TD
     V --> W[Plate-to-Vehicle Association]
     W --> X[Vehicle Attribute Extraction]
     X --> Y[VehicleFingerprint]
+    W --> AH[Optional Local Appearance Encoder]
+    AJ[Explicit Local TorchScript Weights] --> AH
+    AH --> AI[Immutable VehicleAppearanceEmbedding]
 
     L --> Z[Cross-camera Candidate Input]
     Y --> Z
@@ -174,6 +178,17 @@ human-readable report
         ↓
 external-ground-truth evaluation
 ```
+
+### 4.3 Phase 3 — Opt-in appearance-evidence layer
+
+Step 35 introduces only the learned appearance-embedding boundary. An
+already-associated full-vehicle crop may be passed to a model-neutral encoder
+port and represented as immutable, provenance-bearing appearance evidence.
+The feature is disabled by default and is not wired into the Phase 1 pipeline
+or frozen Phase 2 matcher/collector.
+
+No appearance comparison, matching, persistence, historical retrieval or
+identity decision is part of this layer yet.
 
 ---
 
@@ -661,6 +676,47 @@ white vs black    → contradictory evidence
 ```
 
 A fingerprint is evidence for correlation. It is **not a guaranteed identity**.
+
+---
+
+## 17A. Learned vehicle appearance embedding foundation
+
+Step 35 adds `phase3_city.appearance_embedding` as an isolated, opt-in Phase 3
+boundary. It accepts an already-associated full-vehicle BGR crop; it does not
+perform vehicle detection or plate-to-vehicle association.
+
+The model-neutral `VehicleAppearanceEncoder` port returns a frozen
+`VehicleAppearanceEmbedding` containing:
+
+- a finite, non-empty, deterministically L2-normalized vector;
+- the exact vector dimension;
+- configured model ID and model version;
+- SHA-256 provenance for the local weights and preprocessing contract.
+
+The supplied adapter supports a single local TorchScript model path. It is
+lazy-loaded on first inference, reused thereafter, supports CPU and optional
+CUDA selection, and never discovers or downloads weights. Preprocessing is
+explicit and deterministic: uint8 BGR to RGB, fixed-size OpenCV linear resize,
+float32 `1/255` conversion, configured channel normalization, and CHW tensor
+ordering. The source crop is not mutated.
+
+Availability is explicit. A missing configuration or `enabled: false` yields
+no encoder; no crop, missing local weights, unavailable device/runtime, load
+failure, or inference failure produces a domain error rather than negative
+identity evidence. Invalid crops and invalid/non-finite/ambiguous model output
+fail validation. Missing appearance evidence remains neutral.
+
+The disabled example configuration is
+`phase3_city/config/appearance.example.yaml`. CitySight does not currently
+ship an approved ReID weights artifact, so a compatible, externally supplied
+local TorchScript model remains a prerequisite for real inference. The model's
+input dimensions and normalization values must be configured from that
+model's verified contract; they are never guessed.
+
+Step 35 explicitly does **not** add appearance similarity, thresholds,
+same-vehicle probability, hybrid matching, candidate reranking, persistence,
+historical retrieval, trajectories, APIs, training, evaluation metrics, or an
+accuracy claim. No persistent global vehicle identity is created.
 
 ---
 
@@ -1339,6 +1395,7 @@ Current prototype principles:
 | Tracking | BYTETrack |
 | OCR | PaddleOCR 3.7 |
 | Numerical/image processing | NumPy |
+| Optional learned appearance runtime | Existing PyTorch runtime through the Ultralytics environment; lazy local TorchScript only |
 | Persistence | SQLite via `sqlite3` |
 | Evidence storage | Local filesystem |
 | API | Python stdlib `http.server` |
@@ -1370,7 +1427,9 @@ Unless a future reviewed step changes this document, CitySight does **not** curr
 - a microservice mesh;
 - cloud inference;
 - vector databases;
-- learned vehicle-ReID embeddings;
+- appearance-similarity or hybrid appearance matching;
+- bundled or automatically downloaded ReID weights;
+- appearance-vector persistence or historical appearance search;
 - automatic make/model recognition;
 - global probabilistic vehicle identity assignment.
 
@@ -1443,7 +1502,7 @@ known graph link ≠ proof the vehicle used that road
 | Phase 2 | 33 | Real-world two-camera replay validation | Complete |
 | Evaluation | 34A | Real-world annotation format, capture/evaluator infrastructure, frame preparation and annotation tooling | Complete |
 | Evaluation | 34B | Exhaustive manual labels, observation adjudication and final population-level metrics | **Pending manual labels** |
-| Phase 3 | 35 | Learned vehicle appearance/ReID embedding foundation | Approved; not started |
+| Phase 3 | 35 | Learned vehicle appearance/ReID embedding foundation | Complete |
 | Phase 3 | 36 | Explainable appearance-evidence comparison | Planned |
 | Phase 3 | 37 | Hybrid plate/attribute/appearance candidate matching | Planned |
 | Phase 3 | 38 | Persistent vehicle and appearance evidence storage | Planned |
@@ -1531,21 +1590,21 @@ truth, retrieval bounds and denominators.
 
 ---
 
-## 39A. Authoritative Phase 3 roadmap — NOT IMPLEMENTED
+## 39A. Authoritative Phase 3 roadmap
 
 The current ordered roadmap is:
 
-| Step | Capability |
-|---:|---|
-| 35 | Learned vehicle appearance/ReID embedding foundation |
-| 36 | Explainable appearance-evidence comparison |
-| 37 | Hybrid plate/attribute/appearance candidate matching |
-| 38 | Persistent vehicle and appearance evidence storage |
-| 39 | Bounded historical candidate retrieval |
-| 40 | Query and ranking-history persistence |
-| 41 | Inferred trajectory hypotheses |
-| 42 | Read-only Phase 3 API/dashboard surfaces |
-| 43 | Final benchmark, baseline comparison and ablation study |
+| Step | Capability | Status |
+|---:|---|---|
+| 35 | Learned vehicle appearance/ReID embedding foundation | Implemented |
+| 36 | Explainable appearance-evidence comparison | Planned |
+| 37 | Hybrid plate/attribute/appearance candidate matching | Planned |
+| 38 | Persistent vehicle and appearance evidence storage | Planned |
+| 39 | Bounded historical candidate retrieval | Planned |
+| 40 | Query and ranking-history persistence | Planned |
+| 41 | Inferred trajectory hypotheses | Planned |
+| 42 | Read-only Phase 3 API/dashboard surfaces | Planned |
+| 43 | Final benchmark, baseline comparison and ablation study | Blocked on Step 34B |
 
 Historical frozen planning used Phase 3 Steps 34–42. Those references remain
 historically valid and must not be silently rewritten; they map one-to-one to
@@ -1661,14 +1720,15 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 32 | Added Phase 2 demo/evaluation runbook | Implemented |
 | 2026-09 | 33 | Rejected RoundaboutHD as an incompatible end-to-end ANPR benchmark, then completed the Phase 2 functional baseline with the frozen self-recorded two-camera replay validation | Implemented |
 | 2026-09 | 34 Part A/B helper | Added the strict real-video benchmark adapter, frame preparation, and a loopback-only prediction-blind manual annotation UI with revision-checked atomic YAML persistence; exhaustive human labeling remains pending | Implemented; labels pending |
-| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; not implemented |
+| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Step 35 implemented |
+| 2026-09 | 35 | Added an isolated, disabled-by-default learned appearance-embedding boundary with deterministic preprocessing, immutable model/weights/preprocessing provenance, a model-neutral encoder port, and lazy local TorchScript loading; no comparison, matching, persistence, identity semantics or accuracy claim | Implemented |
 | 2026-09 | Phase 1 accuracy audit | Added external-label manifests, dataset leakage/integrity audit, detector configuration sweeps, OCR preprocessing and track-fusion ablations, linked end-to-end recognition, stage-correct metrics, and experiment provenance without changing production inference | Implemented; labeled dataset required for measurements |
 
 ---
 
 ## 43. One-sentence architecture summary
 
-**CitySight is a lightweight, modular, explainable multi-camera ANPR and vehicle-correlation system that converts video into confidence-aware plate observations, enriches them with optional vehicle evidence and camera/time context, ranks physically plausible cross-camera candidates deterministically, and evaluates retrieval against independent ground truth without pretending uncertain correlations are confirmed identities.**
+**CitySight is a lightweight, modular, explainable multi-camera ANPR and vehicle-correlation system that converts video into confidence-aware plate observations, enriches them with optional deterministic and learned vehicle evidence plus camera/time context, ranks physically plausible cross-camera candidates deterministically, and evaluates retrieval against independent ground truth without pretending uncertain correlations are confirmed identities.**
 
 ---
 

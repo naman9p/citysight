@@ -1,0 +1,16 @@
+# Step 35 learned appearance embedding example.
+# Disabled by default. Real operation requires an explicitly supplied,
+# approved local TorchScript ReID model with matching preprocessing metadata.
+# CitySight never downloads or discovers model weights automatically.
+# The dimensions/mean/std below are illustrative and must be replaced with the
+# verified input contract of the approved model artifact.
+appearance_embedding:
+  enabled: false
+  model_path: weights/vehicle_reid.torchscript.pt
+  model_id: replace-with-approved-model-id
+  model_version: replace-with-approved-model-version
+  device: cpu
+  input_width: 128
+  input_height: 256
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
