@@ -918,6 +918,41 @@ def build_parser() -> argparse.ArgumentParser:
         )
 
     prepare.set_defaults(handler=_prepare_real_world)
+
+    annotate = subparsers.add_parser(
+        "real-world-annotate",
+        help="serve the local prediction-blind Step 34 annotation UI",
+    )
+    annotate.add_argument(
+        "--ground-truth",
+        default="phase1_anpr/evaluation/step34_ground_truth.yaml",
+    )
+    annotate.add_argument(
+        "--frames-dir",
+        default="phase1_anpr/evaluation/step34_frames",
+    )
+    annotate.add_argument("--port", type=int, default=8765)
+    annotate.add_argument(
+        "--no-backup", action="store_true",
+        help="do not retain the immediately previous manifest as .bak",
+    )
+    annotate.add_argument(
+        "--open-browser", action="store_true",
+        help="open the loopback annotation URL in the default browser",
+    )
+
+    def _annotate_real_world(args):
+        from phase1_anpr.evaluation.annotation import run_annotation_server
+
+        return run_annotation_server(
+            args.ground_truth,
+            args.frames_dir,
+            port=args.port,
+            create_backup=not args.no_backup,
+            open_browser=args.open_browser,
+        )
+
+    annotate.set_defaults(handler=_annotate_real_world)
     return parser
 
 

@@ -6,9 +6,10 @@ Part A is implemented: strict annotation and prediction formats, fixed-baseline
 capture, stage-correct metrics, machine-readable JSON output, Markdown output,
 failure details, and focused tests.
 
-Part B is intentionally pending manual labeling. **No real-world accuracy is
-reported by this document.** The known Step 33 cross-camera example is not a
-substitute for a labeled benchmark population.
+Part B now includes a local, prediction-blind annotation helper. Exhaustive
+manual labeling is still pending, so **no real-world accuracy is reported by
+this document.** The known Step 33 cross-camera example is not a substitute for
+a labeled benchmark population.
 
 ## Existing infrastructure reused
 
@@ -95,6 +96,57 @@ the project convention of uppercase alphanumeric canonicalization for both
 ground truth and predictions; no grammar correction or guessed character is
 applied. Set `text_evaluable: false` when an exact transcription cannot be made
 reliably.
+
+## Local manual annotation helper
+
+From the repository root, launch the helper against the already prepared Step
+34 workspace:
+
+```powershell
+.\venv\Scripts\python.exe -m phase1_anpr.evaluation real-world-annotate `
+  --ground-truth phase1_anpr\evaluation\step34_ground_truth.yaml `
+  --frames-dir phase1_anpr\evaluation\step34_frames `
+  --port 8765 `
+  --open-browser
+```
+
+Without `--open-browser`, visit `http://127.0.0.1:8765/`. The server binds only
+to the local loopback interface and uses Python's stdlib HTTP server plus a
+plain HTML/CSS/JavaScript interface. It does not load prediction files, replay
+observations, the detector, OCR, candidate rankings, or any production ANPR
+component.
+
+The interface shows source, camera, zero-based source frame number, timestamp,
+and the extracted full frame. Draw boxes directly on the image; moving or
+resizing them keeps coordinates in full-resolution image pixels. Each box must
+reference a stable per-passage `instance_id`. Enter a new ID for the first
+frame of a passage, then reuse that ID from the suggestions on subsequent
+frames. Mark text evaluable only when the complete plate can be read reliably;
+otherwise leave it unchecked, which saves `plate_text: null` and
+`text_evaluable: false`. Vehicle identity and notes are optional manual fields.
+
+Primary controls and shortcuts are:
+
+- Previous / Next or Left / Right Arrow;
+- camera/source selector and exact frame-number jump;
+- Next unreviewed;
+- `R` to mark reviewed, save, and advance to the next unreviewed frame;
+- `N` to save a reviewed negative frame with `plates: []` and advance;
+- `S` to save without advancing;
+- Delete to remove the selected box.
+
+Every save validates the complete resulting manifest, requires the revision
+that the browser loaded, writes a same-directory temporary file, and atomically
+replaces the YAML. By default the immediately previous bytes are retained as
+`step34_ground_truth.yaml.bak`; pass `--no-backup` only when that backup is not
+wanted. A stale browser cannot overwrite a newer on-disk annotation. Editing a
+previously reviewed frame also requires explicit browser confirmation.
+
+This helper deliberately leaves `observation_event_id`,
+`observation_link_reviewed`, `observations_reviewed`,
+`non_plate_observation_event_ids`, and `cross_camera_cases` unchanged. Perform
+replay-event linkage and adjudication only after the prediction-blind frame,
+box, text, and identity labeling pass and baseline capture described below.
 
 ## Exact manual work required
 

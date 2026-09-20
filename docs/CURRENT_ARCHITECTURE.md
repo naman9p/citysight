@@ -1235,8 +1235,19 @@ optional manually known cross-camera identity, and manually adjudicated replay
 event links. Unreviewed frames are excluded rather than silently treated as
 negative frames.
 
+Step 34 Part B adds a local annotation boundary in
+`phase1_anpr/evaluation/annotation.py` with a plain
+`phase1_anpr/evaluation/annotation_ui.html` browser client. The loopback-only
+stdlib HTTP server exposes extracted manifest frames and manual label fields;
+it does not load predictions or production inference components. Saves are
+revision checked, strictly validated, backed up by default, and atomically
+replace the existing YAML while preserving unrelated labels and replay-event
+adjudication fields.
+
 ```text
 manual Step 34 video labels
+        ↑
+prediction-blind local annotation UI
         +
 fixed Step 33 config/scenario/topology
         ↓
@@ -1254,12 +1265,14 @@ false-positive adjudication
 optional Recall@K / HitRate@K / MRR when labels are sufficient
 ```
 
-The preparation, capture, and evaluator CLIs are persistent evaluation
-interfaces. Preparation extracts exactly the configured replay frames but marks
-all of them unreviewed; it does not invent negative labels. These interfaces do
-not sweep or tune production settings. Cross-camera percentages require at
-least two manually labeled source cases by default, so the single confirmed
-Step 33 match cannot be presented as an aggregate accuracy result.
+The preparation, local annotation, capture, and evaluator CLIs are persistent
+evaluation interfaces. Preparation extracts exactly the configured replay
+frames but marks all of them unreviewed; it does not invent negative labels.
+Annotation edits only human labels and intentionally excludes prediction and
+replay-event surfaces. These interfaces do not sweep or tune production
+settings. Cross-camera percentages require at least two manually labeled source
+cases by default, so the single confirmed Step 33 match cannot be presented as
+an aggregate accuracy result.
 
 ---
 
@@ -1573,6 +1586,7 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 30–31 | Added independent-ground-truth candidate evaluation and reproducible runner | Implemented |
 | 2026-09 | 32 | Added Phase 2 demo/evaluation runbook | Implemented |
 | 2026-09 | 33 | Validated RoundaboutHD timing/identity semantics, then rejected it as the primary end-to-end dataset after an unchanged 600-frame CitySight preflight produced zero plate detections, tracks and observations; replacement dataset required | In progress |
+| 2026-09 | 34 Part A/B helper | Added the strict real-video benchmark adapter, frame preparation, and a loopback-only prediction-blind manual annotation UI with revision-checked atomic YAML persistence; exhaustive human labeling remains pending | Implemented; labels pending |
 | 2026-09 | Phase 1 accuracy audit | Added external-label manifests, dataset leakage/integrity audit, detector configuration sweeps, OCR preprocessing and track-fusion ablations, linked end-to-end recognition, stage-correct metrics, and experiment provenance without changing production inference | Implemented; labeled dataset required for measurements |
 
 ---
@@ -1629,9 +1643,11 @@ Detailed experiment results are documented in:
 
 Step 34 Part A adds the strict, label-driven workflow documented in
 `docs/STEP34_REAL_WORLD_GROUND_TRUTH_BENCHMARK.md` and the fillable
-`phase1_anpr/evaluation/step34_ground_truth.template.yaml`.
+`phase1_anpr/evaluation/step34_ground_truth.template.yaml`. Part B adds the
+local prediction-blind annotation helper for the prepared YAML and extracted
+frames.
 
-Part B remains pending because the two videos have not yet been exhaustively
-and independently labeled. The architecture must not claim detector, OCR,
-end-to-end, confidence, or cross-camera percentages until those manual labels
-exist and the evaluator has calculated the stated numerators and denominators.
+Exhaustive independent labeling remains pending. The architecture must not
+claim detector, OCR, end-to-end, confidence, or cross-camera percentages until
+those manual labels exist and the evaluator has calculated the stated
+numerators and denominators.
