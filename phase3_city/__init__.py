@@ -90,9 +90,18 @@ _TRAJECTORY_HYPOTHESIS_EXPORTS = frozenset({
     "TrajectoryHypothesisResult",
 })
 
+_API_EXPORTS = frozenset({
+    "MAX_QUERY_IDS",
+    "PHASE3_API_IMPLEMENTATION_ID",
+    "PHASE3_API_SCHEMA_VERSION",
+    "Phase3ApiError",
+    "Phase3ReadApi",
+    "open_phase3_read_api",
+})
+
 
 def __getattr__(name):
-    """Lazy-load Phase 2-backed Step 37–41 modules on demand."""
+    """Lazy-load Phase 2-backed Step 37–42 modules on demand."""
     if name in _HYBRID_EXPORTS:
         from phase3_city import hybrid_matching as module
     elif name in _PERSISTENCE_EXPORTS:
@@ -103,6 +112,8 @@ def __getattr__(name):
         from phase3_city import query_history as module
     elif name in _TRAJECTORY_HYPOTHESIS_EXPORTS:
         from phase3_city import trajectory_hypotheses as module
+    elif name in _API_EXPORTS:
+        from phase3_city import api as module
     else:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     value = getattr(module, name)
@@ -136,7 +147,12 @@ __all__ = [
     "HYBRID_SNAPSHOT_SCHEMA_VERSION",
     "HybridResultSnapshot",
     "LocalTorchScriptAppearanceEncoder",
+    "MAX_QUERY_IDS",
+    "PHASE3_API_IMPLEMENTATION_ID",
+    "PHASE3_API_SCHEMA_VERSION",
+    "Phase3ApiError",
     "Phase3HybridCandidateMatcher",
+    "Phase3ReadApi",
     "PhysicalFeasibilityEvidence",
     "PhysicalGateStatus",
     "PHYSICAL_POLICY_VERSION",
@@ -178,5 +194,6 @@ __all__ = [
     "build_vehicle_appearance_encoder",
     "build_candidate_query_history",
     "compare_appearance_embeddings",
+    "open_phase3_read_api",
     "preprocess_vehicle_crop",
 ]

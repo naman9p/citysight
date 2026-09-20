@@ -130,6 +130,19 @@ persistence:
   # Local evidence store base dir; swappable for MinIO/S3 later.
   evidence_dir: "outputs/plates/evidence"
 
+# Optional Step 42 read-only Phase 3 inspection API/dashboard. Omission or
+# enabled: false leaves the existing Phase 1/2 server unchanged. When enabled,
+# each non-null path must name an existing SQLite file; it is opened with
+# SQLite mode=ro and is never created or migrated by the API server.
+phase3_api:
+  enabled: false
+  evidence_db_path: null
+  query_history_db_path: null
+  hypothesis_policy:
+    max_hops: 8
+    max_hypotheses: 25
+    max_branching_per_event: 10
+
 # Phase 2 cross-camera trajectory reconstruction (Step 20). Read by
 # TrajectoryReconstructor.from_config; module defaults apply if omitted.
 trajectory:

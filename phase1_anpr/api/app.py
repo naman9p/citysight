@@ -1,5 +1,4 @@
-"""Read-only HTTP API for observations, plates, watchlist, trajectories, and
-camera topology (Steps 13, 15, 21, 22).
+"""HTTP API for Phase 1/2 plus opt-in read-only Phase 3 inspection.
 
 Per CLAUDE.md this uses only the Python standard library (`http.server`) — no
 FastAPI/new dependencies. Handlers delegate to `ObservationRepository`; no SQL is
@@ -9,7 +8,9 @@ identity, so they are returned as-is (plate fields NULL).
 
 Step 22 adds read-only camera topology endpoints (``/v1/cameras``,
 ``/v1/cameras/{id}``, ``/v1/cameras/{id}/links``, ``/v1/links``) backed by
-a ``CityCameraGraph`` snapshot.
+a ``CityCameraGraph`` snapshot. Step 42 delegates ``/v1/phase3/*`` GET routes
+to an optional Phase 3 read service. No Phase 3 module is loaded when that
+service is disabled.
 
 `create_server(repository, ...)` builds a `ThreadingHTTPServer` bound to a given
 host/port (use port 0 in tests for an ephemeral port), so tests can drive it over
@@ -28,6 +29,7 @@ from phase2_city.trajectory import TrajectoryQueryError, TrajectoryDataError
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 500
+MAX_DISCARDED_BODY_BYTES = 64 * 1024
 
 # JSON-safe columns returned to clients (drops nothing sensitive; explicit so the
 # response shape is stable regardless of internal schema additions).
@@ -94,12 +96,14 @@ class _Router:
     """Resolves a path/query into a JSON-serializable result or raises ApiError."""
 
     def __init__(self, repository, normalizer=None, watchlist_repo=None,
-                 trajectory_reconstructor=None, city_graph=None):
+                 trajectory_reconstructor=None, city_graph=None,
+                 phase3_api=None):
         self.repo = repository
         self.normalizer = normalizer or PlateNormalizer()
         self.watchlist = watchlist_repo
         self.trajectory = trajectory_reconstructor
         self.graph = city_graph
+        self.phase3_api = phase3_api
 
     def _require_watchlist(self):
         if self.watchlist is None:
@@ -119,6 +123,17 @@ class _Router:
     def dispatch(self, path: str, qs: dict):
         if path == "/health":
             return {"status": "ok"}
+
+        if path == "/v1/phase3" or path.startswith("/v1/phase3/"):
+            if self.phase3_api is None:
+                raise ApiError(503, "Phase 3 API is not configured")
+            from phase3_city.api import Phase3ApiError
+            try:
+                return self.phase3_api.dispatch(path, qs)
+            except Phase3ApiError as exc:
+                raise ApiError(exc.status, exc.message) from exc
+            except Exception as exc:
+                raise ApiError(500, "Phase 3 data is unavailable") from exc
 
         if path == "/observations":
             return [_to_response(r) for r in self.repo.list_recent(_parse_limit(qs))]
@@ -195,6 +210,9 @@ class _Router:
         raise ApiError(404, "not found")
 
     def dispatch_post(self, path: str, body: dict):
+        if path == "/v1/phase3" or path.startswith("/v1/phase3/"):
+            raise ApiError(405, "Phase 3 endpoints are read-only")
+
         if path == "/watchlist":
             wl = self._require_watchlist()
             if not isinstance(body, dict):
@@ -228,6 +246,9 @@ class _Router:
         raise ApiError(404, "not found")
 
     def dispatch_delete(self, path: str):
+        if path == "/v1/phase3" or path.startswith("/v1/phase3/"):
+            raise ApiError(405, "Phase 3 endpoints are read-only")
+
         m = re.fullmatch(r"/watchlist/([^/]+)", path)
         if m:
             wl = self._require_watchlist()
@@ -240,14 +261,20 @@ class _Router:
 
 
 def make_handler(repository, normalizer=None, watchlist_repo=None,
-                 trajectory_reconstructor=None, city_graph=None):
+                 trajectory_reconstructor=None, city_graph=None,
+                 phase3_api=None):
     router = _Router(repository, normalizer, watchlist_repo,
                      trajectory_reconstructor=trajectory_reconstructor,
-                     city_graph=city_graph)
+                     city_graph=city_graph, phase3_api=phase3_api)
 
     class Handler(BaseHTTPRequestHandler):
-        def _send(self, status, payload):
-            body = json.dumps(payload).encode("utf-8")
+        def _send(self, status, payload, *, deterministic=False):
+            body = json.dumps(
+                payload,
+                allow_nan=False,
+                sort_keys=deterministic,
+                separators=(",", ":") if deterministic else None,
+            ).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -272,35 +299,88 @@ def make_handler(repository, normalizer=None, watchlist_repo=None,
             except (ValueError, UnicodeDecodeError):
                 raise ApiError(400, "invalid JSON body")
 
+        def _discard_request_body(self):
+            """Consume a mutation body before a controlled Phase 3 405."""
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if length > MAX_DISCARDED_BODY_BYTES:
+                self.close_connection = True
+            elif length > 0:
+                self.rfile.read(length)
+
         def do_GET(self):
             parts = urlsplit(self.path)
             if parts.path == "/dashboard":
                 self._send_html(DASHBOARD_HTML)
                 return
+            phase3 = (parts.path == "/v1/phase3"
+                      or parts.path.startswith("/v1/phase3/"))
             try:
-                result = router.dispatch(parts.path, parse_qs(parts.query))
+                result = router.dispatch(
+                    parts.path,
+                    parse_qs(parts.query, keep_blank_values=phase3),
+                )
             except ApiError as e:
-                self._send(e.status, {"error": e.message})
+                self._send(
+                    e.status, {"error": e.message}, deterministic=phase3)
             else:
-                self._send(200, result)
+                self._send(200, result, deterministic=phase3)
 
         def do_POST(self):
             parts = urlsplit(self.path)
+            phase3 = (parts.path == "/v1/phase3"
+                      or parts.path.startswith("/v1/phase3/"))
+            if phase3:
+                self._discard_request_body()
+                self._send(
+                    405,
+                    {"error": "Phase 3 endpoints are read-only"},
+                    deterministic=True,
+                )
+                return
             try:
                 status, result = router.dispatch_post(parts.path, self._read_json())
             except ApiError as e:
-                self._send(e.status, {"error": e.message})
+                self._send(
+                    e.status, {"error": e.message}, deterministic=phase3)
             else:
-                self._send(status, result)
+                self._send(status, result, deterministic=phase3)
 
         def do_DELETE(self):
             parts = urlsplit(self.path)
+            phase3 = (parts.path == "/v1/phase3"
+                      or parts.path.startswith("/v1/phase3/"))
+            if phase3:
+                self._discard_request_body()
             try:
                 result = router.dispatch_delete(parts.path)
             except ApiError as e:
-                self._send(e.status, {"error": e.message})
+                self._send(
+                    e.status, {"error": e.message}, deterministic=phase3)
             else:
-                self._send(200, result)
+                self._send(200, result, deterministic=phase3)
+
+        def _reject_phase3_mutation(self):
+            parts = urlsplit(self.path)
+            phase3 = (parts.path == "/v1/phase3"
+                      or parts.path.startswith("/v1/phase3/"))
+            if phase3:
+                self._discard_request_body()
+                self._send(
+                    405,
+                    {"error": "Phase 3 endpoints are read-only"},
+                    deterministic=True,
+                )
+                return
+            self.send_error(501, "Unsupported method")
+
+        def do_PUT(self):
+            self._reject_phase3_mutation()
+
+        def do_PATCH(self):
+            self._reject_phase3_mutation()
 
         def log_message(self, *args):  # silence stderr during tests
             pass
@@ -310,9 +390,10 @@ def make_handler(repository, normalizer=None, watchlist_repo=None,
 
 def create_server(repository, host="127.0.0.1", port=0, normalizer=None,
                   watchlist_repo=None, trajectory_reconstructor=None,
-                  city_graph=None):
+                  city_graph=None, phase3_api=None):
     """Build a ThreadingHTTPServer. port=0 binds an ephemeral port."""
     return ThreadingHTTPServer(
         (host, port), make_handler(repository, normalizer, watchlist_repo,
                                   trajectory_reconstructor=trajectory_reconstructor,
-                                  city_graph=city_graph))
+                                  city_graph=city_graph,
+                                  phase3_api=phase3_api))

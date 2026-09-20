@@ -1,7 +1,7 @@
 """Static operator dashboard for the SIH Phase 1 demo (Step 14).
 
 Plain HTML/CSS/vanilla JS served by the existing stdlib server. The page talks
-ONLY to the public HTTP API (/observations, /plates/{plate}/observations) — it
+ONLY to public HTTP APIs — it
 has no knowledge of ANPR/persistence internals. All data values are rendered via
 textContent (never innerHTML), so no raw HTML injection is possible.
 
@@ -36,6 +36,16 @@ DASHBOARD_HTML = """<!doctype html>
   #map { height: 220px; display: flex; align-items: center; justify-content: center; border: 1px dashed #303542; border-radius: 6px; color: #6b7280; text-align: center; }
   form { display: flex; gap: 8px; margin-bottom: 10px; }
   form input { flex: 1; }
+  .phase3 { grid-column: 1 / -1; }
+  .phase3-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .phase3-card { border: 1px solid #303542; border-radius: 6px; padding: 10px; min-width: 0; }
+  .phase3-card h3 { margin: 0 0 8px; font-size: 13px; color: #c5ceda; }
+  .phase3-card form { flex-wrap: wrap; }
+  .phase3-card pre { min-height: 130px; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-word; background: #10131a; border-radius: 6px; padding: 8px; font-size: 12px; }
+  .trajectory-boundary { display: flex; gap: 18px; margin: 0 0 12px; color: #9aa4b2; font-size: 13px; }
+  .trajectory-boundary strong { color: #e6e6e6; }
+  .policy-input { width: 58px; flex: 0 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } .phase3-grid { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -74,6 +84,46 @@ DASHBOARD_HTML = """<!doctype html>
       <thead><tr><th>Time</th><th>Plate</th><th>Camera</th><th>Conf.</th></tr></thead>
       <tbody id="alert-rows"><tr><td colspan="4" class="muted">—</td></tr></tbody>
     </table>
+  </section>
+  <section class="phase3" id="phase3-panel">
+    <h2>Phase 3 — Read-only evidence inspection</h2>
+    <div class="trajectory-boundary">
+      <span><strong>Exact trajectory</strong> — existing accepted-plate Phase 2 result</span>
+      <span><strong>Inferred trajectory hypothesis</strong> — separate evidence-backed possibility</span>
+    </div>
+    <div class="phase3-grid">
+      <div class="phase3-card">
+        <h3>Event evidence</h3>
+        <form id="p3-evidence-form">
+          <input id="p3-event-id" placeholder="event ID" autocomplete="off">
+          <button type="submit">Load evidence</button>
+        </form>
+        <div class="muted">Appearance metadata is shown without raw vectors.</div>
+        <pre id="p3-evidence-output">Enter an event ID.</pre>
+      </div>
+      <div class="phase3-card">
+        <h3>Stored query history and retrieval position</h3>
+        <form id="p3-query-form">
+          <input id="p3-query-id" placeholder="query ID" autocomplete="off">
+          <button type="submit">Load history</button>
+        </form>
+        <div class="muted">Stored order is retrieval history, not a relevance rank.</div>
+        <pre id="p3-query-output">Enter a query ID.</pre>
+      </div>
+      <div class="phase3-card">
+        <h3>Inferred trajectory hypothesis</h3>
+        <form id="p3-hypothesis-form">
+          <input id="p3-root-id" placeholder="root event ID" autocomplete="off">
+          <input id="p3-hypothesis-query-ids" placeholder="query IDs, comma separated" autocomplete="off">
+          <input class="policy-input" id="p3-max-hops" type="number" min="1" max="32" value="8" title="Maximum hops">
+          <input class="policy-input" id="p3-max-hypotheses" type="number" min="1" max="100" value="25" title="Maximum hypotheses">
+          <input class="policy-input" id="p3-max-branching" type="number" min="1" max="25" value="10" title="Maximum branching per event">
+          <button type="submit">Build read-only</button>
+        </form>
+        <div class="muted">Physical feasibility, trusted plate relation, attribute evidence and appearance similarity remain separate.</div>
+        <pre id="p3-hypothesis-output">Enter a root event and explicit query IDs.</pre>
+      </div>
+    </div>
   </section>
 </main>
 <script>
@@ -227,6 +277,67 @@ DASHBOARD_HTML = """<!doctype html>
   function loadSecondary() { loadWatchlist(); loadAlerts(); }
   loadSecondary();
   setInterval(loadSecondary, 5000);
+
+  // --- Phase 3 read-only inspection ---------------------------------------
+  function phase3Request(url) {
+    return fetch(url).then(function (r) {
+      return r.json().then(function (payload) {
+        if (!r.ok) throw new Error(payload.error || "Phase 3 request failed");
+        return payload;
+      });
+    });
+  }
+
+  function showPhase3(node, payload) {
+    node.textContent = JSON.stringify(payload, null, 2);
+  }
+
+  function showPhase3Error(node, error) {
+    node.textContent = error && error.message ? error.message : "Phase 3 request failed";
+  }
+
+  document.getElementById("p3-evidence-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var eventId = document.getElementById("p3-event-id").value.trim();
+    var output = document.getElementById("p3-evidence-output");
+    if (!eventId) { output.textContent = "Event ID is required."; return; }
+    phase3Request("/v1/phase3/evidence/" + encodeURIComponent(eventId))
+      .then(function (data) { showPhase3(output, data); })
+      .catch(function (error) { showPhase3Error(output, error); });
+  });
+
+  document.getElementById("p3-query-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var queryId = document.getElementById("p3-query-id").value.trim();
+    var output = document.getElementById("p3-query-output");
+    if (!queryId) { output.textContent = "Query ID is required."; return; }
+    var base = "/v1/phase3/queries/" + encodeURIComponent(queryId);
+    Promise.all([phase3Request(base), phase3Request(base + "/results")])
+      .then(function (data) {
+        showPhase3(output, { query: data[0], ordered_results: data[1] });
+      }).catch(function (error) { showPhase3Error(output, error); });
+  });
+
+  document.getElementById("p3-hypothesis-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var rootId = document.getElementById("p3-root-id").value.trim();
+    var rawIds = document.getElementById("p3-hypothesis-query-ids").value.split(",");
+    var queryIds = rawIds.map(function (value) { return value.trim(); })
+      .filter(function (value) { return Boolean(value); });
+    var output = document.getElementById("p3-hypothesis-output");
+    if (!rootId || queryIds.length === 0) {
+      output.textContent = "Root event ID and at least one query ID are required.";
+      return;
+    }
+    var parameters = new URLSearchParams();
+    queryIds.forEach(function (queryId) { parameters.append("query_id", queryId); });
+    parameters.set("max_hops", document.getElementById("p3-max-hops").value);
+    parameters.set("max_hypotheses", document.getElementById("p3-max-hypotheses").value);
+    parameters.set("max_branching_per_event", document.getElementById("p3-max-branching").value);
+    var url = "/v1/phase3/hypotheses/" + encodeURIComponent(rootId) + "?" + parameters.toString();
+    phase3Request(url).then(function (data) { showPhase3(output, data); })
+      .catch(function (error) { showPhase3Error(output, error); });
+  });
 })();
 </script>
 </body>

@@ -682,13 +682,32 @@ class CandidateQueryHistoryRepository(ABC):
 class SQLiteCandidateQueryHistoryRepository(CandidateQueryHistoryRepository):
     """Additive stdlib-sqlite immutable query-history repository."""
 
-    def __init__(self, db_path=":memory:"):
-        if db_path != ":memory:":
-            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    def __init__(self, db_path=":memory:", *, read_only=False):
+        if not isinstance(read_only, bool):
+            raise QueryHistoryValidationError("read_only must be bool")
+        if read_only:
+            if db_path == ":memory:":
+                raise QueryHistoryValidationError(
+                    "read-only query history requires a file-backed database")
+            path = Path(db_path)
+            if not path.is_file():
+                raise QueryHistoryPersistenceError(
+                    "read-only query-history database is unavailable")
+            self._conn = sqlite3.connect(
+                f"{path.resolve().as_uri()}?mode=ro",
+                uri=True,
+                check_same_thread=False,
+            )
+        else:
+            if db_path != ":memory:":
+                Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(
+                str(db_path), check_same_thread=False)
+        self._read_only = read_only
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
-        self._migrate()
+        if not read_only:
+            self._migrate()
 
     def _migrate(self) -> None:
         try:
@@ -701,6 +720,9 @@ class SQLiteCandidateQueryHistoryRepository(CandidateQueryHistoryRepository):
             ) from exc
 
     def save_query(self, record: CandidateQueryHistoryRecord) -> bool:
+        if self._read_only:
+            raise QueryHistoryPersistenceError(
+                "candidate query-history repository is read-only")
         if not isinstance(record, CandidateQueryHistoryRecord):
             raise QueryHistoryValidationError(
                 "record must be a CandidateQueryHistoryRecord")

@@ -502,12 +502,31 @@ def _merge_records(
 class SQLiteVehicleEvidenceRepository(VehicleEvidenceRepository):
     """Additive stdlib-sqlite repository keyed by canonical ``event_id``."""
 
-    def __init__(self, db_path=":memory:"):
-        if db_path != ":memory:":
-            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    def __init__(self, db_path=":memory:", *, read_only=False):
+        if not isinstance(read_only, bool):
+            raise VehicleEvidenceValidationError("read_only must be bool")
+        if read_only:
+            if db_path == ":memory:":
+                raise VehicleEvidenceValidationError(
+                    "read-only evidence requires a file-backed database")
+            path = Path(db_path)
+            if not path.is_file():
+                raise VehicleEvidencePersistenceError(
+                    "read-only evidence database is unavailable")
+            self._conn = sqlite3.connect(
+                f"{path.resolve().as_uri()}?mode=ro",
+                uri=True,
+                check_same_thread=False,
+            )
+        else:
+            if db_path != ":memory:":
+                Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(
+                str(db_path), check_same_thread=False)
+        self._read_only = read_only
         self._conn.row_factory = sqlite3.Row
-        self._migrate()
+        if not read_only:
+            self._migrate()
 
     def _migrate(self) -> None:
         try:
@@ -520,6 +539,9 @@ class SQLiteVehicleEvidenceRepository(VehicleEvidenceRepository):
             ) from exc
 
     def save(self, record: VehicleEvidenceRecord) -> bool:
+        if self._read_only:
+            raise VehicleEvidencePersistenceError(
+                "vehicle evidence repository is read-only")
         if not isinstance(record, VehicleEvidenceRecord):
             raise VehicleEvidenceValidationError(
                 "record must be a VehicleEvidenceRecord")

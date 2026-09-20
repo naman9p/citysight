@@ -61,6 +61,7 @@ It combines:
 - bounded persistence-backed historical candidate retrieval;
 - immutable Phase 3 query and supplied-order audit history;
 - bounded, in-memory inferred trajectory hypotheses;
+- opt-in read-only Phase 3 API/dashboard inspection;
 - physical travel-feasibility reasoning;
 - bounded cross-camera candidate retrieval;
 - candidate reporting;
@@ -134,6 +135,10 @@ flowchart TD
     AU --> AV[Explicitly Selected Step 40 Records]
     AV --> AW[Bounded Step 41 Hypothesis Builder]
     AW --> AX[Branched Inferred TrajectoryHypotheses]
+    AP -. event lookup .-> AY[Phase 3 Read Service]
+    AU -. explicit query lookup .-> AY
+    AX -. inferred result .-> AY
+    AY --> P
 ```
 
 ---
@@ -218,7 +223,8 @@ and physical filtering before any appearance evaluation. Step 40 adds opt-in,
 immutable audit persistence for that supplied order and optional already-
 computed Step 37 evidence. Step 41 consumes explicitly supplied Step 40 records
 read-only and constructs bounded, deterministic, in-memory inferred paths from
-eligible precomputed snapshots.
+eligible precomputed snapshots. Step 42 adds an opt-in read service and static
+dashboard inspection panel over those existing records/results.
 
 No Phase 3 relevance-ranking algorithm or identity decision is part of this
 layer. A `TrajectoryHypothesis` is an auditable possibility, not an exact
@@ -476,6 +482,12 @@ FastAPI is intentionally not part of the current architecture.
 
 Existing API areas include observation retrieval and later read-only Phase 2 surfaces such as trajectory/topology where wired.
 
+Step 42 adds opt-in read-only Phase 3 routes under `/v1/phase3`. The existing
+server starts normally without Phase 3 configuration. Configured Phase 3
+SQLite files are opened with SQLite `mode=ro`; the HTTP integration cannot
+create, migrate or modify them. See Section 17H for the exact routes and
+serialization boundary.
+
 API principles:
 
 - minimal;
@@ -503,6 +515,11 @@ Purpose:
 - avoid spending SIH scope on a large frontend framework.
 
 The dashboard consumes the existing HTTP API.
+
+Step 42 adds one separate Phase 3 inspection panel for event evidence, stored
+query history/retrieval positions and bounded inferred hypotheses. It uses the
+same plain JavaScript and `textContent`-only rendering convention. Exact Phase
+2 trajectories and inferred Phase 3 hypotheses remain visibly distinct.
 
 ---
 
@@ -1143,6 +1160,74 @@ candidate ranking, aggregate confidence, identity probability, global vehicle
 entity, HTTP endpoint, dashboard or accuracy claim. Step 42 owns read-only
 Phase 3 API/dashboard surfaces. Step 43 owns the externally verified benchmark,
 frozen-baseline comparison and ablation study after Step 34B is complete.
+
+---
+
+## 17H. Read-only Phase 3 API and dashboard inspection
+
+Step 42 adds `phase3_city.api.Phase3ReadApi` and delegates only the following
+GET routes from the existing stdlib HTTP server:
+
+```text
+GET /v1/phase3/evidence/{event_id}
+GET /v1/phase3/queries/{query_id}
+GET /v1/phase3/queries/{query_id}/results
+GET /v1/phase3/hypotheses/{root_event_id}?query_id=...
+```
+
+The evidence route performs one exact Step 38 primary-key lookup. It exposes
+the stored event/camera/time/status and fingerprint values. Appearance output
+contains only an availability flag, dimension, model ID/version, weights hash
+and preprocessing hash. Raw embedding vectors and local weight paths are not
+part of the HTTP representation.
+
+The query header exposes the immutable Step 40 policy snapshots, diagnostics,
+order kind and versions. The separate results route preserves the exact stored
+candidate sequence and names each zero-based field `retrieval_position`; it is
+explicitly described as retrieval history rather than a relevance rank.
+Optional Step 37 snapshots remain either a complete decomposed evidence object
+or JSON `null`. Physical status, trusted-plate relation, attribute outcome,
+appearance availability/cosine evidence and any hard-gate reason remain
+separate rather than being collapsed into a score.
+
+Hypothesis construction requires a root event in the path plus one or more
+explicit repeated `query_id` parameters. It never scans query history. The API
+loads only those exact Step 40 records and invokes the unchanged Step 41
+builder in memory. The request may lower or select `max_hops`,
+`max_hypotheses` and `max_branching_per_event` within fixed API ceilings; the
+number of supplied query IDs is also capped. Responses are labeled
+`inferred_hypothesis`, include policy/bounds and supporting query references,
+and explicitly state that they are not exact trajectories.
+
+The normal YAML configuration contains an optional `phase3_api` block. It is
+disabled by default. When enabled, `evidence_db_path` and
+`query_history_db_path` independently identify existing SQLite files; at least
+one is required. The server opens each configured repository with SQLite
+`mode=ro`, skips schema migration and fails clearly if an explicitly configured
+file is absent. If the block is absent/disabled, Phase 1/2 startup and routes
+are unchanged and Phase 3 requests return a controlled not-configured response.
+A partially configured service returns a controlled unavailable response only
+for the missing repository capability.
+
+Phase 3 identifiers use a narrow length/character contract. Repository SQL
+remains parameterized, arbitrary paths/raw SQL are never accepted, and no
+list-all endpoint exists. Stored corruption and serialization failures map to
+generic JSON errors without exception details or filesystem paths. Phase 3
+JSON uses stable keys, ISO-8601 timestamps, arrays for ordered collections,
+JSON `null` for missing values and rejects NaN/Infinity.
+
+The existing dashboard gains a distinct read-only Phase 3 panel. It performs
+exact event/query lookup and explicitly bounded hypothesis requests using
+vanilla JavaScript. All returned values are rendered with `textContent`. Its
+language distinguishes **Exact trajectory** from **Inferred trajectory
+hypothesis** and describes appearance similarity only as evidence.
+
+POST, PUT, PATCH and DELETE requests under `/v1/phase3` return a controlled
+method-not-allowed error. Step 42 adds no save/update/delete call, table, model
+execution, historical retrieval, matcher, ranking, threshold, global identity,
+probability, ground-truth access or accuracy claim. Existing Phase 1/2 route
+semantics remain unchanged. Step 43 remains responsible for the final
+externally verified benchmark, frozen-baseline comparison and ablation study.
 
 ---
 
@@ -1936,7 +2021,7 @@ known graph link ≠ proof the vehicle used that road
 | Phase 3 | 39 | Bounded historical candidate retrieval | Complete |
 | Phase 3 | 40 | Query and ranking-history persistence | Complete |
 | Phase 3 | 41 | Inferred trajectory hypotheses | Complete |
-| Phase 3 | 42 | Read-only Phase 3 API/dashboard surfaces | Planned |
+| Phase 3 | 42 | Read-only Phase 3 API/dashboard surfaces | Complete |
 | Phase 3 | 43 | Final benchmark, baseline comparison and ablation study | Blocked on Step 34B |
 
 Frozen pre-Phase-3 repository point:
@@ -2030,7 +2115,7 @@ The current ordered roadmap is:
 | 39 | Bounded historical candidate retrieval | Implemented |
 | 40 | Query and ranking-history persistence | Implemented |
 | 41 | Inferred trajectory hypotheses | Implemented |
-| 42 | Read-only Phase 3 API/dashboard surfaces | Planned |
+| 42 | Read-only Phase 3 API/dashboard surfaces | Implemented |
 | 43 | Final benchmark, baseline comparison and ablation study | Blocked on Step 34B |
 
 Historical frozen planning used Phase 3 Steps 34–42. Those references remain
@@ -2147,7 +2232,7 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 32 | Added Phase 2 demo/evaluation runbook | Implemented |
 | 2026-09 | 33 | Rejected RoundaboutHD as an incompatible end-to-end ANPR benchmark, then completed the Phase 2 functional baseline with the frozen self-recorded two-camera replay validation | Implemented |
 | 2026-09 | 34 Part A/B helper | Added the strict real-video benchmark adapter, frame preparation, and a loopback-only prediction-blind manual annotation UI with revision-checked atomic YAML persistence; exhaustive human labeling remains pending | Implemented; labels pending |
-| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–41 implemented |
+| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–42 implemented |
 | 2026-09 | 35 | Added an isolated, disabled-by-default learned appearance-embedding boundary with deterministic preprocessing, immutable model/weights/preprocessing provenance, a model-neutral encoder port, and lazy local TorchScript loading; no comparison, matching, persistence, identity semantics or accuracy claim | Implemented |
 | 2026-09 | 36 | Added strict-provenance appearance-only comparison using cosine/dot-product evidence and normalized-vector Euclidean diagnostics, with explicit neutral missing/incompatible states and no thresholds, identity decisions, candidate integration or accuracy claim | Implemented |
 | 2026-09 | 37 | Added an opt-in parallel hybrid pairwise matcher that reuses frozen Phase 2 physical/fingerprint results, enforces physical and trusted-plate hard gates, and exposes separate attribute/appearance diagnostics without aggregate probability, collector integration, persistence or accuracy claims | Implemented |
@@ -2155,6 +2240,7 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 39 | Added opt-in persistence-backed forward candidate retrieval with strict time/camera bounds, paged embedding-free SQL scans, unchanged Phase 2 physical gates, deterministic chronological truncation and a post-filter hard cap; no appearance comparison, hybrid ranking, query history or identity semantics | Implemented |
 | 2026-09 | 40 | Added immutable SQLite audit history for caller-identified Phase 3 queries, exact Step 39 retrieval order/diagnostics and optional caller-supplied Step 37 snapshots, with atomic insertion and conflict-safe idempotency; no new ranking, identity probability, trajectory, API or accuracy semantics | Implemented |
 | 2026-09 | 41 | Added bounded, deterministic, in-memory inferred trajectory hypotheses from explicitly supplied immutable Step 40 history; precomputed Step 37 hard gates remain authoritative, branches remain explainable, and exact Phase 2 trajectories stay separate, with no persistence, global identity, probability, API or accuracy claim | Implemented |
+| 2026-09 | 42 | Added opt-in read-only stdlib HTTP and vanilla-JavaScript inspection for Step 38 evidence, exact Step 40 retrieval history and explicitly bounded Step 41 inferred hypotheses; configured SQLite files open read-only, raw vectors stay private, and exact Phase 2 trajectories remain separate, with no writes, matcher/ranker, identity probability or accuracy claim | Implemented |
 | 2026-09 | Phase 1 accuracy audit | Added external-label manifests, dataset leakage/integrity audit, detector configuration sweeps, OCR preprocessing and track-fusion ablations, linked end-to-end recognition, stage-correct metrics, and experiment provenance without changing production inference | Implemented; labeled dataset required for measurements |
 
 ---
