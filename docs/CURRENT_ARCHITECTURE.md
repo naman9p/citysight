@@ -56,6 +56,7 @@ It combines:
 - deterministic vehicle fingerprints;
 - optional learned vehicle-appearance embedding evidence;
 - explainable appearance-only comparison diagnostics;
+- parallel Phase 3 hybrid candidate matching;
 - physical travel-feasibility reasoning;
 - bounded cross-camera candidate retrieval;
 - candidate reporting;
@@ -114,6 +115,10 @@ flowchart TD
     AC --> AE[Candidate Evaluation]
     AF[External Ground Truth] --> AE
     AE --> AG[Recall@K / HitRate@K / MRR / Truncation]
+
+    Z --> AM[Opt-in Phase 3 Hybrid Pairwise Matcher]
+    AL --> AM
+    AM --> AN[Explainable Gate + Evidence Result]
 ```
 
 ---
@@ -189,10 +194,12 @@ already-associated full-vehicle crop may be passed to a model-neutral encoder
 port and represented as immutable, provenance-bearing appearance evidence.
 Step 36 adds a deterministic appearance-only comparison for two such
 embeddings. Both features remain isolated from the Phase 1 pipeline and frozen
-Phase 2 matcher/collector.
+Phase 2 matcher/collector. Step 37 adds an opt-in parallel pairwise matcher that
+reuses Phase 2 physical/fingerprint results while enforcing stricter Phase 3
+hard-gate authority.
 
-No hybrid matching, candidate reranking, persistence, historical retrieval or
-identity decision is part of this layer yet.
+No Phase 3 candidate collection/reranking, persistence, historical retrieval
+or identity decision is part of this layer yet.
 
 ---
 
@@ -772,6 +779,84 @@ does not connect appearance results to `CrossCameraCandidateMatcher`,
 surfaces or evaluation. Step 37 is the first approved step for hybrid
 plate/attribute/appearance candidate matching. No accuracy claim is authorized
 until externally verified evaluation is complete.
+
+---
+
+## 17C. Parallel Phase 3 hybrid candidate matching
+
+Step 37 adds `phase3_city.hybrid_matching` as an independently testable,
+opt-in pairwise path. It accepts the existing Phase 2
+`FingerprintObservation` source/candidate values plus optional already-created
+Step 35 embeddings. It does not run a ReID model, search for candidates, or
+perform I/O.
+
+The `Phase3HybridCandidateMatcher` delegates each pair to the existing public
+`CrossCameraCandidateMatcher`. It reuses that result's topology status,
+elapsed time, direct-link minimum travel time, travel status and unchanged
+`FingerprintComparison`. Therefore timestamp ordering, direct-link speed
+ceilings, tolerance, missing-topology behavior and fingerprint field semantics
+remain implemented and tested in one Phase 2 location. The Phase 3 matcher
+does not reuse Phase 2's final evidence decision except to recognize its
+structural-ineligibility and physical-impossibility hard gates.
+
+Authority is deterministic and ordered:
+
+```text
+same event / same camera
+    → structurally ineligible
+physical impossibility (invalid time order or too-fast direct travel)
+    → authoritative physically-impossible result
+both accepted normalized plates present but unequal
+    → authoritative trusted-plate contradiction
+trusted plate agreement
+    → explicit strong plate evidence
+colour/class field evidence
+    → unchanged Phase 2 match/mismatch/missing values and weights
+compatible appearance comparison
+    → continuous cosine evidence
+missing or incompatible evidence
+    → neutral
+```
+
+A trusted plate is defined narrowly as a non-null
+`VehicleFingerprint.normalized_plate` on a `FingerprintObservation` whose
+canonical `observation_status` is `accepted`. This matches the existing
+`VehicleFingerprint.from_plate_observation` adapter. Review/abstained evidence,
+or a missing normalized plate, is not trusted and cannot create the hard gate.
+When two trusted plates differ, colour, class and even maximum appearance
+similarity cannot rescue the candidate. Physical impossibility remains higher
+priority than the plate gate.
+
+The immutable result separates rather than hides its evidence:
+
+- a Phase 2-derived physical-feasibility projection;
+- trusted plate relation and trusted values;
+- the unchanged complete Phase 2 fingerprint comparison;
+- a colour/class-only projection retaining weights `0.25` and `0.15`, per-field
+  states, coverage and signed net evidence;
+- the complete Step 36 appearance comparison;
+- ordered plate, attribute and appearance component diagnostics;
+- a deterministic status, hard-gate reason and human-readable reasons.
+
+There is intentionally no aggregate hybrid formula. The plate component is
+`+1` for trusted agreement, `-1` for trusted contradiction and absent when
+unavailable. Attribute evidence retains the existing signed weighted sum.
+Appearance retains cosine similarity in `[-1, 1]` only when provenance is
+compatible. These differently sourced values are not summed, calibrated or
+converted into a probability. No new threshold is introduced.
+
+Result statuses are `ineligible`, `physically_impossible`,
+`trusted_plate_contradiction`, `eligible_with_evidence` and
+`eligible_without_evidence`. The last two describe evidence availability, not
+a same-vehicle classification. Phase 2 deliberately continues to return
+`possible_weak` for a trusted plate mismatch mixed with matching attributes;
+that historical behavior is unchanged, while the parallel Phase 3 path applies
+the authoritative contradiction rule.
+
+Step 37 does not connect this result to `ReplayCandidateCollector`, alter
+candidate bounds or ranking, persist embeddings/results, access history, modify
+exact trajectories, add API/dashboard surfaces, or make an accuracy claim.
+Step 38 remains the approved persistence step.
 
 ---
 
@@ -1482,7 +1567,7 @@ Unless a future reviewed step changes this document, CitySight does **not** curr
 - a microservice mesh;
 - cloud inference;
 - vector databases;
-- hybrid plate/attribute/appearance matching or candidate reranking;
+- Phase 3 candidate collection, hybrid reranking or production rollout;
 - appearance thresholds, same-vehicle classifications or identity probabilities;
 - bundled or automatically downloaded ReID weights;
 - appearance-vector persistence or historical appearance search;
@@ -1560,7 +1645,7 @@ known graph link ≠ proof the vehicle used that road
 | Evaluation | 34B | Exhaustive manual labels, observation adjudication and final population-level metrics | **Pending manual labels** |
 | Phase 3 | 35 | Learned vehicle appearance/ReID embedding foundation | Complete |
 | Phase 3 | 36 | Explainable appearance-evidence comparison | Complete |
-| Phase 3 | 37 | Hybrid plate/attribute/appearance candidate matching | Planned |
+| Phase 3 | 37 | Hybrid plate/attribute/appearance candidate matching | Complete |
 | Phase 3 | 38 | Persistent vehicle and appearance evidence storage | Planned |
 | Phase 3 | 39 | Bounded historical candidate retrieval | Planned |
 | Phase 3 | 40 | Query and ranking-history persistence | Planned |
@@ -1654,7 +1739,7 @@ The current ordered roadmap is:
 |---:|---|---|
 | 35 | Learned vehicle appearance/ReID embedding foundation | Implemented |
 | 36 | Explainable appearance-evidence comparison | Implemented |
-| 37 | Hybrid plate/attribute/appearance candidate matching | Planned |
+| 37 | Hybrid plate/attribute/appearance candidate matching | Implemented |
 | 38 | Persistent vehicle and appearance evidence storage | Planned |
 | 39 | Bounded historical candidate retrieval | Planned |
 | 40 | Query and ranking-history persistence | Planned |
@@ -1776,9 +1861,10 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 32 | Added Phase 2 demo/evaluation runbook | Implemented |
 | 2026-09 | 33 | Rejected RoundaboutHD as an incompatible end-to-end ANPR benchmark, then completed the Phase 2 functional baseline with the frozen self-recorded two-camera replay validation | Implemented |
 | 2026-09 | 34 Part A/B helper | Added the strict real-video benchmark adapter, frame preparation, and a loopback-only prediction-blind manual annotation UI with revision-checked atomic YAML persistence; exhaustive human labeling remains pending | Implemented; labels pending |
-| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–36 implemented |
+| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–37 implemented |
 | 2026-09 | 35 | Added an isolated, disabled-by-default learned appearance-embedding boundary with deterministic preprocessing, immutable model/weights/preprocessing provenance, a model-neutral encoder port, and lazy local TorchScript loading; no comparison, matching, persistence, identity semantics or accuracy claim | Implemented |
 | 2026-09 | 36 | Added strict-provenance appearance-only comparison using cosine/dot-product evidence and normalized-vector Euclidean diagnostics, with explicit neutral missing/incompatible states and no thresholds, identity decisions, candidate integration or accuracy claim | Implemented |
+| 2026-09 | 37 | Added an opt-in parallel hybrid pairwise matcher that reuses frozen Phase 2 physical/fingerprint results, enforces physical and trusted-plate hard gates, and exposes separate attribute/appearance diagnostics without aggregate probability, collector integration, persistence or accuracy claims | Implemented |
 | 2026-09 | Phase 1 accuracy audit | Added external-label manifests, dataset leakage/integrity audit, detector configuration sweeps, OCR preprocessing and track-fusion ablations, linked end-to-end recognition, stage-correct metrics, and experiment provenance without changing production inference | Implemented; labeled dataset required for measurements |
 
 ---
