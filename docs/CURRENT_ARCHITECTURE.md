@@ -55,6 +55,7 @@ It combines:
 - vehicle attributes;
 - deterministic vehicle fingerprints;
 - optional learned vehicle-appearance embedding evidence;
+- explainable appearance-only comparison diagnostics;
 - physical travel-feasibility reasoning;
 - bounded cross-camera candidate retrieval;
 - candidate reporting;
@@ -99,6 +100,8 @@ flowchart TD
     W --> AH[Optional Local Appearance Encoder]
     AJ[Explicit Local TorchScript Weights] --> AH
     AH --> AI[Immutable VehicleAppearanceEmbedding]
+    AI --> AK[Strict-Provenance Appearance Comparison]
+    AK --> AL[Cosine Similarity + Euclidean Diagnostic]
 
     L --> Z[Cross-camera Candidate Input]
     Y --> Z
@@ -181,13 +184,14 @@ external-ground-truth evaluation
 
 ### 4.3 Phase 3 — Opt-in appearance-evidence layer
 
-Step 35 introduces only the learned appearance-embedding boundary. An
+Step 35 introduces the learned appearance-embedding boundary. An
 already-associated full-vehicle crop may be passed to a model-neutral encoder
 port and represented as immutable, provenance-bearing appearance evidence.
-The feature is disabled by default and is not wired into the Phase 1 pipeline
-or frozen Phase 2 matcher/collector.
+Step 36 adds a deterministic appearance-only comparison for two such
+embeddings. Both features remain isolated from the Phase 1 pipeline and frozen
+Phase 2 matcher/collector.
 
-No appearance comparison, matching, persistence, historical retrieval or
+No hybrid matching, candidate reranking, persistence, historical retrieval or
 identity decision is part of this layer yet.
 
 ---
@@ -717,6 +721,57 @@ Step 35 explicitly does **not** add appearance similarity, thresholds,
 same-vehicle probability, hybrid matching, candidate reranking, persistence,
 historical retrieval, trajectories, APIs, training, evaluation metrics, or an
 accuracy claim. No persistent global vehicle identity is created.
+
+---
+
+## 17B. Explainable appearance-evidence comparison
+
+Step 36 adds `phase3_city.appearance_comparison` as a pure comparison boundary
+over two optional Step 35 `VehicleAppearanceEmbedding` values. It does not run
+inference and does not modify either input.
+
+For embeddings `x` and `y`, cosine similarity is mathematically:
+
+```text
+cos(x, y) = (x · y) / (||x||2 ||y||2)
+```
+
+Step 35 stores every valid embedding with unit L2 norm, therefore Step 36 uses
+the equivalent deterministic calculation:
+
+```text
+cos(x, y) = x · y                  range: [-1, 1]
+distance(x, y) = sqrt(2 - 2cos)    range: [0, 2]
+```
+
+The Euclidean value is a diagnostic for the same normalized-vector geometry;
+cosine remains the primary appearance-evidence score. A narrowly bounded
+floating-point correction handles only tiny cosine drift beyond `-1` or `1`.
+There is no appearance threshold, category, calibration or probability.
+
+Comparison is allowed only when all representation-space provenance matches:
+
+- vector dimension;
+- model ID;
+- model version;
+- weights SHA-256;
+- preprocessing SHA-256.
+
+An immutable `AppearanceComparisonResult` includes source and candidate
+provenance snapshots, availability status, compatibility diagnostics, and—only
+for compatible evidence—cosine similarity and Euclidean distance. Missing
+source evidence, missing candidate evidence, both missing, and incompatible
+provenance are explicit non-comparable states with `None` numeric values.
+They are neutral: they do not become zero similarity, contradiction, rejection
+or negative identity evidence.
+
+A high appearance similarity is evidence only. It is not proof of physical
+vehicle identity, a same-vehicle decision, or an identity probability. Step 36
+does not connect appearance results to `CrossCameraCandidateMatcher`,
+`ReplayCandidateCollector`, physical-feasibility rules, persistence, API
+surfaces or evaluation. Step 37 is the first approved step for hybrid
+plate/attribute/appearance candidate matching. No accuracy claim is authorized
+until externally verified evaluation is complete.
 
 ---
 
@@ -1427,7 +1482,8 @@ Unless a future reviewed step changes this document, CitySight does **not** curr
 - a microservice mesh;
 - cloud inference;
 - vector databases;
-- appearance-similarity or hybrid appearance matching;
+- hybrid plate/attribute/appearance matching or candidate reranking;
+- appearance thresholds, same-vehicle classifications or identity probabilities;
 - bundled or automatically downloaded ReID weights;
 - appearance-vector persistence or historical appearance search;
 - automatic make/model recognition;
@@ -1503,7 +1559,7 @@ known graph link ≠ proof the vehicle used that road
 | Evaluation | 34A | Real-world annotation format, capture/evaluator infrastructure, frame preparation and annotation tooling | Complete |
 | Evaluation | 34B | Exhaustive manual labels, observation adjudication and final population-level metrics | **Pending manual labels** |
 | Phase 3 | 35 | Learned vehicle appearance/ReID embedding foundation | Complete |
-| Phase 3 | 36 | Explainable appearance-evidence comparison | Planned |
+| Phase 3 | 36 | Explainable appearance-evidence comparison | Complete |
 | Phase 3 | 37 | Hybrid plate/attribute/appearance candidate matching | Planned |
 | Phase 3 | 38 | Persistent vehicle and appearance evidence storage | Planned |
 | Phase 3 | 39 | Bounded historical candidate retrieval | Planned |
@@ -1597,7 +1653,7 @@ The current ordered roadmap is:
 | Step | Capability | Status |
 |---:|---|---|
 | 35 | Learned vehicle appearance/ReID embedding foundation | Implemented |
-| 36 | Explainable appearance-evidence comparison | Planned |
+| 36 | Explainable appearance-evidence comparison | Implemented |
 | 37 | Hybrid plate/attribute/appearance candidate matching | Planned |
 | 38 | Persistent vehicle and appearance evidence storage | Planned |
 | 39 | Bounded historical candidate retrieval | Planned |
@@ -1720,8 +1776,9 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 32 | Added Phase 2 demo/evaluation runbook | Implemented |
 | 2026-09 | 33 | Rejected RoundaboutHD as an incompatible end-to-end ANPR benchmark, then completed the Phase 2 functional baseline with the frozen self-recorded two-camera replay validation | Implemented |
 | 2026-09 | 34 Part A/B helper | Added the strict real-video benchmark adapter, frame preparation, and a loopback-only prediction-blind manual annotation UI with revision-checked atomic YAML persistence; exhaustive human labeling remains pending | Implemented; labels pending |
-| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Step 35 implemented |
+| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–36 implemented |
 | 2026-09 | 35 | Added an isolated, disabled-by-default learned appearance-embedding boundary with deterministic preprocessing, immutable model/weights/preprocessing provenance, a model-neutral encoder port, and lazy local TorchScript loading; no comparison, matching, persistence, identity semantics or accuracy claim | Implemented |
+| 2026-09 | 36 | Added strict-provenance appearance-only comparison using cosine/dot-product evidence and normalized-vector Euclidean diagnostics, with explicit neutral missing/incompatible states and no thresholds, identity decisions, candidate integration or accuracy claim | Implemented |
 | 2026-09 | Phase 1 accuracy audit | Added external-label manifests, dataset leakage/integrity audit, detector configuration sweeps, OCR preprocessing and track-fusion ablations, linked end-to-end recognition, stage-correct metrics, and experiment provenance without changing production inference | Implemented; labeled dataset required for measurements |
 
 ---
