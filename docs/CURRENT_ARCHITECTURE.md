@@ -59,6 +59,7 @@ It combines:
 - parallel Phase 3 hybrid candidate matching;
 - observation-scoped Phase 3 vehicle/appearance evidence persistence;
 - bounded persistence-backed historical candidate retrieval;
+- immutable Phase 3 query and supplied-order audit history;
 - physical travel-feasibility reasoning;
 - bounded cross-camera candidate retrieval;
 - candidate reporting;
@@ -127,6 +128,8 @@ flowchart TD
     AP --> AQ[Bounded Forward Metadata Pages]
     AQ --> AR[Existing Phase 2 Physical Feasibility]
     AR --> AS[Chronological Hard-Capped Candidate Set]
+    AS -. opt-in snapshot .-> AT[Phase 3 Query History Repository]
+    AT --> AU[(SQLite candidate queries + ordered results)]
 ```
 
 ---
@@ -207,10 +210,12 @@ reuses Phase 2 physical/fingerprint results while enforcing stricter Phase 3
 hard-gate authority. Step 38 adds an opt-in observation-scoped SQLite evidence
 repository without automatically wiring it into replay or production. Step 39
 adds opt-in, persistence-backed forward candidate collection with structural
-and physical filtering before any appearance evaluation.
+and physical filtering before any appearance evaluation. Step 40 adds opt-in,
+immutable audit persistence for that supplied order and optional already-
+computed Step 37 evidence.
 
-No Phase 3 hybrid ranking, query-history persistence, inferred trajectory or
-identity decision is part of this layer yet.
+No Phase 3 relevance-ranking algorithm, inferred trajectory or identity
+decision is part of this layer yet.
 
 ---
 
@@ -999,9 +1004,78 @@ count, physically impossible exclusions, returned count and truncation state.
 Step 39 performs no appearance comparison, ReID inference, Step 37 hybrid
 matching, plate preselection, relevance ranking, similarity query, ANN/vector
 indexing, global identity assignment, trajectory inference, query-history
-persistence, API work or accuracy measurement. Step 40 owns query and
-ranking-history persistence; later integration must keep the same structural
-bound before appearance scoring.
+persistence, API work or accuracy measurement. Step 40 persists supplied query
+snapshots through the separate boundary below; later integration must keep the
+same structural bound before appearance scoring.
+
+---
+
+## 17F. Immutable query and supplied-order history
+
+Step 40 adds `phase3_city.query_history`, the repository port
+`CandidateQueryHistoryRepository`, and its default stdlib-SQLite implementation
+`SQLiteCandidateQueryHistoryRepository`. The module is persistence-only and
+opt-in. It does not invoke Step 36 comparison, Step 37 matching or Step 39
+retrieval automatically.
+
+There is currently no approved Phase 3 relevance ranker. Step 39 returns
+chronological order by `(candidate timestamp, event_id)`, so Step 40 records a
+zero-based `position` explicitly as **retrieval order**, not relevance rank.
+No score, probability, threshold, relevance label or inferred identity is
+created. An opt-in `build_candidate_query_history` helper copies the exact Step
+39 order and diagnostics; any Step 37 result must already have been computed
+and supplied by the caller.
+
+The additive table `phase3_candidate_queries` stores one immutable query header:
+
+- caller-supplied `query_id` primary key and source event ID;
+- UTC execution timestamp;
+- `max_time_delta_seconds` and `max_results` retrieval-policy snapshot;
+- maximum speed, travel tolerance, minimum evidence coverage and strong
+  similarity threshold from the physical policy;
+- rows considered, physically impossible exclusions, returned count and
+  truncation;
+- the fixed chronological order kind, query/retrieval/physical schema versions
+  and Step 40 implementation ID.
+
+Query IDs are never generated from process memory or a vehicle identity. A
+fresh execution normally receives a new caller-supplied ID. An exact retry is
+an idempotent no-op; reuse of the same ID for a different source, policy,
+diagnostic, order or evidence snapshot raises an explicit conflict and never
+rewrites history.
+
+The additive table `phase3_candidate_query_results` stores:
+
+- query ID plus contiguous zero-based position as its primary key;
+- a uniqueness constraint on `(query_id, candidate_event_id)`;
+- candidate event ID and the Step 39 topology, travel, physical, elapsed-time
+  and minimum-travel-time snapshot;
+- an explicit optional-hybrid flag;
+- when supplied, normalized Step 37 status, hard-gate, physical-gate,
+  trusted-plate, attribute and appearance evidence fields;
+- versioned canonical JSON (`sort_keys`, compact separators, finite JSON
+  numbers) containing the complete supplied Step 37 result, including component
+  diagnostics and appearance provenance.
+
+Canonical hybrid JSON is strictly validated on reconstruction and cross-checked
+against its normalized columns. Appearance cosine remains an evidence value in
+`[-1, 1]`, never an identity probability. A missing hybrid result is explicit:
+all hybrid columns are NULL and no matcher is run to fill them.
+
+Query-header and candidate-row insertion is one SQLite transaction: either the
+complete snapshot commits or no query remains. The results table has an
+internal foreign key to its query header. Source and candidate event IDs remain
+application-level references rather than database foreign keys because Step 38
+evidence and Step 40 history may be kept in different SQLite files. The primary
+key and unique constraint are the only indexes required by the narrow API;
+there is no broad history-search or analytics endpoint.
+
+Snapshots do not depend on later mutations to evidence rows, model weights or
+runtime configuration. Step 40 adds no history update/delete operation, global
+vehicle identity, ground truth, correctness label, accuracy metric, trajectory
+hypothesis, HTTP endpoint or dashboard. Step 41 owns inferred trajectory
+hypotheses, Step 42 owns read-only API/dashboard surfaces, and Step 43 owns the
+final externally verified benchmark and ablation study.
 
 ---
 
@@ -1793,7 +1867,7 @@ known graph link ≠ proof the vehicle used that road
 | Phase 3 | 37 | Hybrid plate/attribute/appearance candidate matching | Complete |
 | Phase 3 | 38 | Persistent vehicle and appearance evidence storage | Complete |
 | Phase 3 | 39 | Bounded historical candidate retrieval | Complete |
-| Phase 3 | 40 | Query and ranking-history persistence | Planned |
+| Phase 3 | 40 | Query and ranking-history persistence | Complete |
 | Phase 3 | 41 | Inferred trajectory hypotheses | Planned |
 | Phase 3 | 42 | Read-only Phase 3 API/dashboard surfaces | Planned |
 | Phase 3 | 43 | Final benchmark, baseline comparison and ablation study | Blocked on Step 34B |
@@ -1887,7 +1961,7 @@ The current ordered roadmap is:
 | 37 | Hybrid plate/attribute/appearance candidate matching | Implemented |
 | 38 | Persistent vehicle and appearance evidence storage | Implemented |
 | 39 | Bounded historical candidate retrieval | Implemented |
-| 40 | Query and ranking-history persistence | Planned |
+| 40 | Query and ranking-history persistence | Implemented |
 | 41 | Inferred trajectory hypotheses | Planned |
 | 42 | Read-only Phase 3 API/dashboard surfaces | Planned |
 | 43 | Final benchmark, baseline comparison and ablation study | Blocked on Step 34B |
@@ -2006,12 +2080,13 @@ Keep this concise. Record architecture-level changes, not every code edit.
 | 2026-09 | 32 | Added Phase 2 demo/evaluation runbook | Implemented |
 | 2026-09 | 33 | Rejected RoundaboutHD as an incompatible end-to-end ANPR benchmark, then completed the Phase 2 functional baseline with the frozen self-recorded two-camera replay validation | Implemented |
 | 2026-09 | 34 Part A/B helper | Added the strict real-video benchmark adapter, frame preparation, and a loopback-only prediction-blind manual annotation UI with revision-checked atomic YAML persistence; exhaustive human labeling remains pending | Implemented; labels pending |
-| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–39 implemented |
+| 2026-09 | 35–43 roadmap | Approved Phase 3 development before Step 34B completion while retaining Step 34B as the mandatory gate for final Phase 2-versus-Phase 3 benchmark claims | Approved; Steps 35–40 implemented |
 | 2026-09 | 35 | Added an isolated, disabled-by-default learned appearance-embedding boundary with deterministic preprocessing, immutable model/weights/preprocessing provenance, a model-neutral encoder port, and lazy local TorchScript loading; no comparison, matching, persistence, identity semantics or accuracy claim | Implemented |
 | 2026-09 | 36 | Added strict-provenance appearance-only comparison using cosine/dot-product evidence and normalized-vector Euclidean diagnostics, with explicit neutral missing/incompatible states and no thresholds, identity decisions, candidate integration or accuracy claim | Implemented |
 | 2026-09 | 37 | Added an opt-in parallel hybrid pairwise matcher that reuses frozen Phase 2 physical/fingerprint results, enforces physical and trusted-plate hard gates, and exposes separate attribute/appearance diagnostics without aggregate probability, collector integration, persistence or accuracy claims | Implemented |
 | 2026-09 | 38 | Added additive observation-scoped SQLite vehicle/appearance evidence persistence with monotonic transactional saves, versioned little-endian float64 embeddings, explicit missing evidence and strict provenance/corruption checks; no historical retrieval, vector index, global identity or production integration | Implemented |
 | 2026-09 | 39 | Added opt-in persistence-backed forward candidate retrieval with strict time/camera bounds, paged embedding-free SQL scans, unchanged Phase 2 physical gates, deterministic chronological truncation and a post-filter hard cap; no appearance comparison, hybrid ranking, query history or identity semantics | Implemented |
+| 2026-09 | 40 | Added immutable SQLite audit history for caller-identified Phase 3 queries, exact Step 39 retrieval order/diagnostics and optional caller-supplied Step 37 snapshots, with atomic insertion and conflict-safe idempotency; no new ranking, identity probability, trajectory, API or accuracy semantics | Implemented |
 | 2026-09 | Phase 1 accuracy audit | Added external-label manifests, dataset leakage/integrity audit, detector configuration sweeps, OCR preprocessing and track-fusion ablations, linked end-to-end recognition, stage-correct metrics, and experiment provenance without changing production inference | Implemented; labeled dataset required for measurements |
 
 ---
