@@ -3,7 +3,7 @@
 ### City-Wide AI Engine for Multi-Camera ANPR Trajectory Tracking and Urban Traffic Analytics
 
 **Smart India Hackathon 2026 · Problem Statement 26127 · Bharat Electronics Limited (BEL)**  
-**Theme:** Transportation & Logistics
+**Theme:** Smart Automation
 
 <p align="left">
   <img src="https://img.shields.io/badge/Python-3.11-blue" alt="Python 3.11" />
