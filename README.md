@@ -20,10 +20,40 @@ Unlike a conventional single-frame ANPR pipeline, CitySight combines:
 - Confidence-based decision making (**Accepted / Review / Abstain** output states)
 - Vehicle fingerprinting & multi-camera trajectory construction
 - Cross-camera candidate search & watchlist alert generation
+- GIS-aware camera topology and trajectory visualization
+- Macro traffic analytics with camera-density / heatmap-ready output
+- Origin-destination (OD) aggregation from accepted trajectories
+- Rule-based route-anomaly alerts using topology and travel-time feasibility
 - Persistent evidence storage & REST-style HTTP API
 - Monitoring dashboard
 
 *This document summarizes the testing methodology, experimentally verified performance, expanded validation design, stress testing strategy, latency profiling, scalability targets, and production-readiness criteria used for SIH evaluation.*
+
+### SIH 26127 Capability Coverage
+
+| Requirement | CitySight implementation status |
+| :--- | :--- |
+| **>90% recognition accuracy** | **94.8% measured character recognition rate (CRR)**. Strict per-crop full-string exact match remains **74.00%** and is reported separately below. |
+| **Single-plate multi-camera trajectory** | **Implemented** — accepted sightings are reconstructed chronologically with timestamps and camera transitions. |
+| **GIS movement history** | **Implemented** — camera latitude/longitude, road, heading, directed topology and a dashboard camera map are available. |
+| **Macro traffic analytics** | **Implemented (MVP)** — camera-wise observed traffic volume, accepted counts, hourly flow and normalized heatmap weights. |
+| **Origin–destination patterns** | **Implemented (MVP)** — OD camera-pair aggregation and transition counts from accepted multi-camera trajectories. |
+| **Route-anomaly alerts** | **Implemented (MVP)** — explainable topology-gap and implausible-travel-speed alerts. |
+| **Watchlist / blacklist alerts** | **Implemented** — watchlist matching, de-duplication, persistence and dashboard/API exposure. |
+| **Cross-camera candidate evaluation** | **Implemented evaluator** — Recall@K, HitRate@K and MRR are supported when explicit external ground truth is supplied. |
+
+#### City Analytics API
+
+```text
+GET /v1/analytics/traffic
+GET /v1/analytics/origin-destination
+GET /v1/alerts/route-anomalies
+GET /v1/cameras
+GET /v1/links
+POST /v1/trajectories
+```
+
+The analytics endpoints are deterministic and read-only. They operate on persisted CitySight observations and the configured city-camera topology; they do not invent vehicle identities or ground-truth labels.
 
 ---
 
