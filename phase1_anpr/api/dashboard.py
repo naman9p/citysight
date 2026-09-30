@@ -5,8 +5,8 @@ ONLY to public HTTP APIs — it
 has no knowledge of ANPR/persistence internals. All data values are rendered via
 textContent (never innerHTML), so no raw HTML injection is possible.
 
-No camera coordinates exist in config, so the map area is intentionally empty
-with a clear notice rather than fabricated markers.
+When city topology is enabled, the dashboard renders a lightweight GIS camera
+map directly from the configured latitude/longitude and directed links.
 """
 
 DASHBOARD_HTML = """<!doctype html>
@@ -33,7 +33,10 @@ DASHBOARD_HTML = """<!doctype html>
   .muted { color: #6b7280; }
   input, button { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid #303542; background: #10131a; color: #e6e6e6; }
   button { cursor: pointer; }
-  #map { height: 220px; display: flex; align-items: center; justify-content: center; border: 1px dashed #303542; border-radius: 6px; color: #6b7280; text-align: center; }
+  #map { height: 220px; position: relative; overflow: hidden; border: 1px solid #303542; border-radius: 6px; color: #6b7280; text-align: center; background: #10131a; }
+  #map svg { position:absolute; inset:0; width:100%; height:100%; }
+  .camera-dot { position:absolute; width:12px; height:12px; border-radius:50%; background:#67e39a; border:2px solid #0f1115; transform:translate(-50%,-50%); }
+  .camera-label { position:absolute; transform:translate(-50%, 8px); font-size:10px; color:#c5ceda; white-space:nowrap; }
   form { display: flex; gap: 8px; margin-bottom: 10px; }
   form input { flex: 1; }
   .phase3 { grid-column: 1 / -1; }
@@ -68,7 +71,7 @@ DASHBOARD_HTML = """<!doctype html>
   </section>
   <section>
     <h2>Camera map</h2>
-    <div id="map">No camera locations configured</div>
+    <div id="map"><span id="map-empty">Loading camera topology…</span></div>
     <h2 style="margin-top:16px">Watchlist</h2>
     <form id="wl-form">
       <input id="wl-plate" placeholder="plate e.g. MH12AB1234" autocomplete="off">
@@ -203,7 +206,66 @@ DASHBOARD_HTML = """<!doctype html>
     load();
   });
 
+  function loadCameraMap() {
+    var map = document.getElementById("map");
+    var empty = document.getElementById("map-empty");
+    Promise.all([
+      fetch("/v1/cameras").then(function (r) { return r.ok ? r.json() : []; }),
+      fetch("/v1/links").then(function (r) { return r.ok ? r.json() : []; })
+    ]).then(function (data) {
+      var cameras = Array.isArray(data[0]) ? data[0] : [];
+      var links = Array.isArray(data[1]) ? data[1] : [];
+      if (!cameras.length) {
+        if (empty) empty.textContent = "Camera topology unavailable";
+        return;
+      }
+      map.replaceChildren();
+      var lats = cameras.map(function (x) { return Number(x.latitude); });
+      var lons = cameras.map(function (x) { return Number(x.longitude); });
+      var minLat = Math.min.apply(null, lats), maxLat = Math.max.apply(null, lats);
+      var minLon = Math.min.apply(null, lons), maxLon = Math.max.apply(null, lons);
+      var latSpan = Math.max(maxLat - minLat, 0.0001);
+      var lonSpan = Math.max(maxLon - minLon, 0.0001);
+      function pos(cam) {
+        return {
+          x: 8 + ((Number(cam.longitude) - minLon) / lonSpan) * 84,
+          y: 92 - ((Number(cam.latitude) - minLat) / latSpan) * 84
+        };
+      }
+      var byId = {};
+      cameras.forEach(function (cam) { byId[cam.camera_id] = cam; });
+      var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      links.forEach(function (link) {
+        var a = byId[link.from_camera_id], b = byId[link.to_camera_id];
+        if (!a || !b) return;
+        var p1 = pos(a), p2 = pos(b);
+        var line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", p1.x + "%"); line.setAttribute("y1", p1.y + "%");
+        line.setAttribute("x2", p2.x + "%"); line.setAttribute("y2", p2.y + "%");
+        line.setAttribute("stroke", "#4b5563"); line.setAttribute("stroke-width", "2");
+        svg.appendChild(line);
+      });
+      map.appendChild(svg);
+      cameras.forEach(function (cam) {
+        var p = pos(cam);
+        var dot = document.createElement("div");
+        dot.className = "camera-dot";
+        dot.style.left = p.x + "%"; dot.style.top = p.y + "%";
+        dot.title = cam.name + " · " + cam.road_name;
+        map.appendChild(dot);
+        var label = document.createElement("div");
+        label.className = "camera-label";
+        label.style.left = p.x + "%"; label.style.top = p.y + "%";
+        label.textContent = cam.camera_id;
+        map.appendChild(label);
+      });
+    }).catch(function () {
+      if (empty) empty.textContent = "Camera topology unavailable";
+    });
+  }
+
   load();
+  loadCameraMap();
   setInterval(load, 5000); // periodic polling only; no streaming transport
 
   // --- watchlist + alerts ---------------------------------------------------
