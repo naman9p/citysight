@@ -26,6 +26,12 @@ from phase1_anpr.normalization.plate_normalizer import PlateNormalizer
 from phase1_anpr.api.dashboard import DASHBOARD_HTML
 from phase1_anpr.persistence.watchlist_repository import WatchlistError
 from phase2_city.trajectory import TrajectoryQueryError, TrajectoryDataError
+from phase2_city.traffic_analytics import (
+    TrafficAnalyticsError,
+    traffic_summary,
+    origin_destination_summary,
+    route_anomaly_alerts,
+)
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 500
@@ -173,6 +179,35 @@ class _Router:
             cameras = sorted(graph.list_cameras(),
                              key=lambda c: c.camera_id)
             return [_camera_to_dict(c) for c in cameras]
+
+        if path == "/v1/analytics/traffic":
+            graph = self._require_graph()
+            try:
+                return traffic_summary(
+                    self.repo, graph, limit=_parse_limit(qs))
+            except TrafficAnalyticsError as exc:
+                raise ApiError(400, str(exc)) from exc
+
+        if path == "/v1/analytics/origin-destination":
+            graph = self._require_graph()
+            try:
+                return origin_destination_summary(
+                    self.repo, graph, limit=_parse_limit(qs))
+            except TrafficAnalyticsError as exc:
+                raise ApiError(400, str(exc)) from exc
+
+        if path == "/v1/alerts/route-anomalies":
+            graph = self._require_graph()
+            raw_speed = qs.get("max_speed_kph", [None])[0]
+            try:
+                max_speed = 160.0 if raw_speed is None else float(raw_speed)
+                return route_anomaly_alerts(
+                    self.repo, graph,
+                    limit=_parse_limit(qs),
+                    max_speed_kph=max_speed,
+                )
+            except (TrafficAnalyticsError, ValueError) as exc:
+                raise ApiError(400, str(exc)) from exc
 
         if path == "/v1/links":
             graph = self._require_graph()

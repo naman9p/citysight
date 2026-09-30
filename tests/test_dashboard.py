@@ -49,9 +49,11 @@ def test_dashboard_returns_html(client):
     assert "CitySight" in r.text
 
 
-def test_dashboard_has_map_empty_notice(client):
+def test_dashboard_has_gis_map_loader(client):
     r = client.get("/dashboard")
-    assert "No camera locations configured" in r.text
+    assert "Loading camera topology" in r.text
+    assert "/v1/cameras" in r.text
+    assert "/v1/links" in r.text
 
 
 def test_dashboard_polls_existing_api(client):
