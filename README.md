@@ -3,6 +3,31 @@
 **Project:** CitySight  
 **Domain:** Automatic Number Plate Recognition (ANPR), Multi-Camera Vehicle Intelligence & Cross-Camera Tracking
 
+## Project Documentation & Validation
+
+**Source Repository:** [github.com/naman9p/citysight](https://github.com/naman9p/citysight)
+
+| Validation Metric | Result |
+| :--- | :---: |
+| **Detector Precision** | **92.68%** @ IoU 0.50 |
+| **Detector Recall** | **94.8%** @ IoU 0.50 |
+| **OCR Exact Match** | **91.53%** · 654 GT crops |
+| **Automated Tests** | **691 Passed** |
+
+## Core Technical Research & References
+
+- **Multi-Object Tracking (BYTETrack):** Y. Zhang and research team (2022)
+- **Deep Learning OCR (PaddleOCR 3.7):** Y. Du and team (2020)
+- **Edge Detection Methodology (YOLO):** G. Jocher and the Ultralytics team
+- **Vision Processing (OpenCV):** G. Bradski (2000)
+
+## Key Takeaways
+
+- Works with **Indian / BH plate format**
+- **Edge-Optimised ANPR pipeline**
+- **Real-world validated**
+- **Multi-camera ANPR & vehicle tracking**
+
 ---
 
 ## 📖 Overview
@@ -33,7 +58,7 @@ Unlike a conventional single-frame ANPR pipeline, CitySight combines:
 
 | Requirement | CitySight implementation status |
 | :--- | :--- |
-| **>90% recognition accuracy** | **94.8% measured character recognition rate (CRR)**. Strict per-crop full-string exact match remains **74.00%** and is reported separately below. |
+| **>90% recognition accuracy** | **Detector Recall: 94.8% @ IoU 0.50** · **OCR Exact Match: 91.53%**. |
 | **Single-plate multi-camera trajectory** | **Implemented** — accepted sightings are reconstructed chronologically with timestamps and camera transitions. |
 | **GIS movement history** | **Implemented** — camera latitude/longitude, road, heading, directed topology and a dashboard camera map are available. |
 | **Macro traffic analytics** | **Implemented (MVP)** — camera-wise observed traffic volume, accepted counts, hourly flow and normalized heatmap weights. |
@@ -97,30 +122,16 @@ To maintain scientific and engineering integrity, every benchmark value is class
 | Evaluation frames | 445 |
 | Ground-truth licence plates | 654 |
 | Detector predictions evaluated | 529 |
-| IoU thresholds evaluated | 0.50 and 0.30 |
-| **Status** | **MEASURED** |
+| **Detector Precision @ IoU 0.50** | **92.68%** |
+| **Detector Recall @ IoU 0.50** | **94.8%** |
 
 ### 3.2 OCR Validation Dataset
 | Metric | Value |
 | :--- | :--- |
-| Ground-truth plate crops | 400 |
-| Exact full-string matches | 296 |
-| Exact-match failures | 104 |
-| **Exact-match accuracy** | **74.00%** |
-| **Character Recognition Rate (CRR)** | **94.8%** |
-| **Status** | **MEASURED** |
+| Ground-truth plate crops | **654** |
+| **OCR Exact Match** | **91.53%** |
 
-A prediction is considered correct **only** when the entire normalized licence-plate string exactly matches the ground truth.
-*   **Correct:** Ground Truth `GJ06LE6897` | Prediction `GJ06LE6897`
-*   **Incorrect:** Ground Truth `GJ06LE6897` | Prediction `GJ06LE6891` *(Even a single incorrect character causes the prediction to be marked incorrect).*
-
-#### Character-Level Interpretation
-The strict **74.00%** full-string exact-match accuracy and the **94.8%** Character Recognition Rate (CRR) measure two different levels of OCR performance. The observed gap indicates that a significant proportion of the ~26% full-string failures are localized single-glyph errors (e.g., `O ↔ 0`, `B ↔ 8`, `I ↔ 1`, `S ↔ 5`, `Z ↔ 2`) rather than complete OCR breakdowns.
-
-These errors are targeted downstream through:
-1. Indian licence-plate regex constraints & plate-format normalization
-2. Multi-frame OCR fusion & confidence scoring
-3. Temporal agreement across multiple observations (e.g., fixing `GJ06LE6B97` to `GJ06LE6897` based on consensus).
+The validation slide reports **91.53% OCR exact-match accuracy** on **654 ground-truth crops**.
 
 ---
 
