@@ -11,7 +11,7 @@
 | :--- | :---: |
 | **Detector Precision** | **92.68%** @ IoU 0.50 |
 | **Detector Recall** | **94.8%** @ IoU 0.50 |
-| **OCR Exact Match** | **91.53%** · 654 GT crops |
+| **OCR Exact Match** | **91.53%** · 649 GT crops |
 | **Automated Tests** | **691 Passed** |
 
 ## Core Technical Research & References
@@ -114,24 +114,31 @@ To maintain scientific and engineering integrity, every benchmark value is class
 
 ---
 
-## 3. Experimentally Verified Dataset
+## 3. Validation Dataset
 
 ### 3.1 Detector Validation Dataset
 | Metric | Value |
 | :--- | :--- |
 | Evaluation frames | 445 |
-| Ground-truth licence plates | 654 |
-| Detector predictions evaluated | 529 |
+| Ground-truth licence plates | **654** |
+| Detector predictions evaluated | **669** |
+| True Positives | **620** |
+| False Positives | **49** |
+| False Negatives | **34** |
 | **Detector Precision @ IoU 0.50** | **92.68%** |
 | **Detector Recall @ IoU 0.50** | **94.8%** |
+
+**Consistency check:** Precision = 620 / 669 = **92.68%** · Recall = 620 / 654 = **94.80%**.
 
 ### 3.2 OCR Validation Dataset
 | Metric | Value |
 | :--- | :--- |
-| Ground-truth plate crops | **654** |
+| Ground-truth plate crops | **649** |
+| Exact full-string matches | **594** |
+| Exact-match failures | **55** |
 | **OCR Exact Match** | **91.53%** |
 
-The validation slide reports **91.53% OCR exact-match accuracy** on **654 ground-truth crops**.
+**Consistency check:** 594 / 649 = **91.5254%**, reported as **91.53%**.
 
 ---
 
